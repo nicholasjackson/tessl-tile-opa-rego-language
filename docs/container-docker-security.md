@@ -15,10 +15,23 @@ Container security is critical in modern cloud-native environments. OPA can be i
 Blocks containers from running with unconfined seccomp profiles, which disable syscall filtering and increase attack surface.
 
 ```rego
+# METADATA
+# title: Docker Seccomp Unconfined Prevention
+# description: Blocks containers from running with unconfined seccomp profiles
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 default allow := false
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -28,7 +41,7 @@ deny if {
 }
 
 seccomp_unconfined if {
-    input.Body.HostConfig.SecurityOpt[_] == "seccomp:unconfined"
+    "seccomp:unconfined" in input.Body.HostConfig.SecurityOpt
 }
 ```
 
@@ -37,6 +50,13 @@ seccomp_unconfined if {
 Enforces the use of a specific seccomp profile for all containers.
 
 ```rego
+# METADATA
+# title: Docker Seccomp Profile Requirement
+# description: Enforces the use of a specific approved seccomp profile for all containers
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -48,6 +68,14 @@ allowed_seccomp_profiles := {
     "seccomp:runtime/default",
 }
 
+# METADATA
+# title: Deny unapproved seccomp profiles
+# description: >-
+#   Blocks containers that do not use an approved seccomp profile
+#   from the allowed list
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.Body.HostConfig.SecurityOpt
     not has_valid_seccomp
@@ -74,12 +102,25 @@ allow if {
 Prevents creation of privileged containers which have access to all host devices and can bypass security restrictions.
 
 ```rego
+# METADATA
+# title: Docker Privileged Container Prevention
+# description: Prevents creation of privileged containers which bypass security restrictions
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -95,6 +136,13 @@ deny contains msg if {
 Allows privileged containers only for approved users or with specific justification metadata.
 
 ```rego
+# METADATA
+# title: Docker Privileged Container Approval
+# description: Allows privileged containers only for approved users with justification metadata
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -103,6 +151,12 @@ default allow := false
 
 privileged_users := {"admin", "security-team"}
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -130,6 +184,13 @@ deny contains msg if {
 Limits which host directories can be mounted into containers to prevent unauthorized access to sensitive paths.
 
 ```rego
+# METADATA
+# title: Docker Host Path Mount Restriction
+# description: Limits which host directories can be mounted into containers
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -138,6 +199,12 @@ default allow := false
 
 allowed_volume_paths := {"/data", "/logs", "/tmp"}
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -160,6 +227,13 @@ is_allowed_path(path) if {
 Explicitly blocks mounting of sensitive system directories.
 
 ```rego
+# METADATA
+# title: Docker Sensitive Directory Mount Prevention
+# description: Explicitly blocks mounting of sensitive system directories into containers
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -175,6 +249,12 @@ blocked_paths := {
     "/root",
 }
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -197,12 +277,25 @@ deny contains msg if {
 Implements fine-grained user authorization with read-only and read-write permissions.
 
 ```rego
+# METADATA
+# title: Docker Read-Only User Access
+# description: Implements fine-grained user authorization with read-only and read-write permissions
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow read-write user access
+# description: Permits requests from users with read-write access
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow if the user is granted read/write access
 allow if {
     user_id := input.Headers["Authz-User"]
@@ -228,6 +321,13 @@ users := {
 Implements role-based access control for Docker operations.
 
 ```rego
+# METADATA
+# title: Docker Role-Based Access Control
+# description: Implements role-based access control for Docker operations
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -247,6 +347,12 @@ role_permissions := {
     "admin": {"methods": {"GET", "POST", "DELETE", "PUT"}, "operations": {"*"}},
 }
 
+# METADATA
+# title: Allow role-based access
+# description: Permits requests from users whose role grants the required operation
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     user := input.Headers["Authz-User"]
     some role in user_roles[user]
@@ -282,6 +388,13 @@ extract_operation(path) := operation if {
 Requires dropping dangerous Linux capabilities from containers.
 
 ```rego
+# METADATA
+# title: Docker Dangerous Capability Drop Requirement
+# description: Requires dropping dangerous Linux capabilities from containers
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -295,6 +408,12 @@ required_drop_capabilities := {
     "SYS_RAWIO",
 }
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -316,6 +435,13 @@ capability_dropped(cap) if {
 Restricts which capabilities can be added to containers.
 
 ```rego
+# METADATA
+# title: Docker Added Capability Limitation
+# description: Restricts which capabilities can be added to containers
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -328,6 +454,12 @@ allowed_add_capabilities := {
     "DAC_OVERRIDE",
 }
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -348,6 +480,13 @@ deny contains msg if {
 Ensures containers run with an AppArmor security profile.
 
 ```rego
+# METADATA
+# title: Docker AppArmor Profile Enforcement
+# description: Ensures containers run with an approved AppArmor security profile
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -360,6 +499,12 @@ approved_apparmor_profiles := {
     "apparmor:docker-nginx",
 }
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -385,6 +530,13 @@ has_apparmor_profile if {
 Validates that containers use appropriate SELinux security contexts.
 
 ```rego
+# METADATA
+# title: Docker SELinux Label Enforcement
+# description: Validates that containers use appropriate SELinux security contexts
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -393,6 +545,12 @@ default allow := false
 
 required_selinux_type := "svirt_sandbox_file_t"
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -423,12 +581,25 @@ deny contains msg if {
 Prevents containers from using host network mode which shares the host's network namespace.
 
 ```rego
+# METADATA
+# title: Docker Host Network Mode Restriction
+# description: Prevents containers from using host network mode
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     not deny
 }
@@ -444,6 +615,13 @@ deny contains msg if {
 Restricts containers to approved network modes.
 
 ```rego
+# METADATA
+# title: Docker Allowed Network Mode Enforcement
+# description: Restricts containers to approved network modes only
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -452,6 +630,12 @@ default allow := false
 
 allowed_network_modes := {"bridge", "none", "container:", "custom-network"}
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     not deny
 }
@@ -482,6 +666,13 @@ is_allowed_network_mode(mode) if {
 Requires all containers to have memory limits to prevent resource exhaustion.
 
 ```rego
+# METADATA
+# title: Docker Memory Limit Enforcement
+# description: Requires all containers to have memory limits to prevent resource exhaustion
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -491,6 +682,12 @@ default allow := false
 minimum_memory := 67108864  # 64MB in bytes
 maximum_memory := 4294967296  # 4GB in bytes
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     not deny
 }
@@ -520,6 +717,13 @@ deny contains msg if {
 Ensures containers have CPU limits to prevent CPU starvation.
 
 ```rego
+# METADATA
+# title: Docker CPU Constraint Enforcement
+# description: Ensures containers have CPU limits to prevent CPU starvation
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -530,6 +734,12 @@ minimum_cpu_shares := 256
 maximum_cpu_quota := 100000
 maximum_cpu_period := 100000
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     not deny
 }
@@ -557,6 +767,13 @@ deny contains msg if {
 Ensures only images that have passed security scanning can be deployed.
 
 ```rego
+# METADATA
+# title: Docker Image Scanning Requirement
+# description: Ensures only images that have passed security scanning can be deployed
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -570,6 +787,12 @@ scanned_images := {
     "myregistry.com/nginx:latest": {"scanned": false},
 }
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -597,6 +820,13 @@ deny contains msg if {
 Enforces that only cryptographically signed images can be deployed.
 
 ```rego
+# METADATA
+# title: Docker Image Signature Verification
+# description: Enforces that only cryptographically signed images from trusted registries can be deployed
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -605,6 +835,12 @@ default allow := false
 
 trusted_registries := {"myregistry.com", "docker.io/verified"}
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -640,6 +876,13 @@ has_signature_verification_label if {
 Ensures containers only use images from approved private registries.
 
 ```rego
+# METADATA
+# title: Docker Private Registry Enforcement
+# description: Ensures containers only use images from approved private registries
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -652,6 +895,12 @@ approved_registries := {
     "123456789.dkr.ecr.us-east-1.amazonaws.com",
 }
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     not deny
 }
@@ -683,6 +932,13 @@ deny contains msg if {
 Restricts which container runtimes can be used.
 
 ```rego
+# METADATA
+# title: Docker Container Runtime Restriction
+# description: Restricts which container runtimes can be used
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -691,6 +947,12 @@ default allow := false
 
 allowed_runtimes := {"runc", "kata-runtime"}
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -712,6 +974,13 @@ deny contains msg if {
 Prevents binding to privileged ports (below 1024) without authorization.
 
 ```rego
+# METADATA
+# title: Docker Privileged Port Binding Restriction
+# description: Prevents binding to privileged ports below 1024 without authorization
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -720,6 +989,12 @@ default allow := false
 
 privileged_port_users := {"admin", "network-team"}
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     not deny
 }
@@ -740,6 +1015,13 @@ deny contains msg if {
 Blocks binding to specific sensitive ports.
 
 ```rego
+# METADATA
+# title: Docker Sensitive Port Binding Prevention
+# description: Blocks binding to specific sensitive ports like SSH, Telnet, RDP, and VNC
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -748,6 +1030,12 @@ default allow := false
 
 blocked_ports := {22, 23, 3389, 5900}  # SSH, Telnet, RDP, VNC
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 allow if {
     not deny
 }
@@ -770,6 +1058,13 @@ deny contains msg if {
 Limits which devices containers can access.
 
 ```rego
+# METADATA
+# title: Docker Device Access Control
+# description: Limits which host devices containers can access
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
@@ -783,6 +1078,12 @@ allowed_devices := {
     "/dev/urandom",
 }
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -803,12 +1104,25 @@ deny contains msg if {
 Blocks containers from using the host's IPC namespace.
 
 ```rego
+# METADATA
+# title: Docker Host IPC Mode Prevention
+# description: Blocks containers from using the host IPC namespace
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -828,12 +1142,25 @@ deny contains msg if {
 Prevents containers from sharing PID namespace with host.
 
 ```rego
+# METADATA
+# title: Docker PID Namespace Restriction
+# description: Prevents containers from sharing PID namespace with host
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -864,12 +1191,25 @@ approved_pid_sharing if {
 Enforces user namespace remapping for improved isolation.
 
 ```rego
+# METADATA
+# title: Docker User Namespace Remapping Enforcement
+# description: Enforces user namespace remapping for improved container isolation
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow non-denied requests
+# description: Permits requests that have no deny conditions
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     not deny
 }
@@ -901,12 +1241,25 @@ deny contains msg if {
 Combines multiple security checks into a comprehensive policy.
 
 ```rego
+# METADATA
+# title: Docker Comprehensive Security Policy
+# description: Combines multiple security checks into a comprehensive multi-layer policy
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow fully compliant requests
+# description: Permits requests that have no deny conditions across all security checks
+# entrypoint: true
+# custom:
+#   severity: HIGH
 allow if {
     count(deny) == 0
 }
@@ -918,7 +1271,7 @@ deny contains "privileged containers are not allowed" if {
 
 # Require seccomp profile
 deny contains "unconfined seccomp profile is not allowed" if {
-    input.Body.HostConfig.SecurityOpt[_] == "seccomp:unconfined"
+    "seccomp:unconfined" in input.Body.HostConfig.SecurityOpt
 }
 
 # Prevent host network
@@ -980,17 +1333,36 @@ uses_approved_registry(image) if {
 Implements comprehensive audit logging for Docker operations.
 
 ```rego
+# METADATA
+# title: Docker Audit Logging and Compliance
+# description: Implements comprehensive audit logging for Docker operations with compliance reporting
+# authors:
+# - Container Security Team <containersec@example.com>
+# custom:
+#   category: container-security
 package docker.authz
 
 import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow compliant requests
+# description: Permits requests that have no audit violations
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Main authorization decision
 allow if {
     count(violations) == 0
 }
 
+# METADATA
+# title: Track security violations
+# description: Collects all security violations for audit and compliance purposes
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Track all violations for audit purposes
 violations contains violation if {
     input.Body.HostConfig.Privileged == true
@@ -1004,7 +1376,7 @@ violations contains violation if {
 }
 
 violations contains violation if {
-    input.Body.HostConfig.SecurityOpt[_] == "seccomp:unconfined"
+    "seccomp:unconfined" in input.Body.HostConfig.SecurityOpt
     violation := {
         "severity": "high",
         "category": "seccomp-disabled",

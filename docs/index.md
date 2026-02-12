@@ -20,6 +20,7 @@ Every Rego file begins with a package declaration that organizes policies into n
 
 ```rego
 package kubernetes.admission
+import rego.v1
 ```
 
 Packages help organize related policies and prevent naming conflicts. Common package naming conventions:
@@ -49,13 +50,11 @@ import data.kubernetes.ingresses
 ```
 Imports external data loaded into OPA for policy evaluation, such as cluster state or configuration.
 
-**Importing Built-in Functions**
+**OPA v1 Compatibility**
 ```rego
-import future.keywords.contains
-import future.keywords.if
-import future.keywords.in
+import rego.v1
 ```
-Imports modern Rego keywords for cleaner syntax (recommended for new policies).
+Enables all Rego v1 keywords (`if`, `contains`, `in`, `every`) for policies running on OPA 0.55+. In OPA 1.0+, these keywords are part of the language by default and no import is required. Do **not** use `import future.keywords` — it is deprecated and cannot be combined with `import rego.v1`.
 
 ### Built-in Libraries
 
@@ -79,6 +78,7 @@ The fundamental pattern for authorization:
 
 ```rego
 package example.authz
+import rego.v1
 
 default allow := false
 
@@ -98,6 +98,7 @@ Collecting multiple policy violations:
 
 ```rego
 package example.validation
+import rego.v1
 
 deny contains msg if {
     not input.username
@@ -116,16 +117,17 @@ Processing and aggregating data:
 
 ```rego
 package example.transform
+import rego.v1
 
 active_users := {user |
-    user := input.users[_]
+    some user in input.users
     user.status == "active"
 }
 
 total_cost_by_team[team] := total if {
     some team
-    resources := [r | r := input.resources[_]; r.team == team]
-    costs := [r.cost | r := resources[_]]
+    resources := [r | some r in input.resources; r.team == team]
+    costs := [r.cost | some r in resources]
     total := sum(costs)
 }
 ```
@@ -148,10 +150,12 @@ Ensures all container images come from approved corporate registries:
 
 ```rego
 package kubernetes.admission
+import rego.v1
 
 deny contains msg if {
     input.request.kind.kind == "Pod"
-    image := input.request.object.spec.containers[_].image
+    some container in input.request.object.spec.containers
+    image := container.image
     not startswith(image, "hooli.com/")
     msg := sprintf("image '%v' comes from untrusted registry", [image])
 }
@@ -163,6 +167,7 @@ Requires specific labels on Kubernetes resources for proper organization:
 
 ```rego
 package kubernetes.admission
+import rego.v1
 
 required_labels := ["app", "team", "environment"]
 
@@ -181,17 +186,18 @@ Enforces pod security standards like non-root user and read-only filesystem:
 
 ```rego
 package kubernetes.admission
+import rego.v1
 
 deny contains msg if {
     input.request.kind.kind == "Pod"
-    container := input.request.object.spec.containers[_]
+    some container in input.request.object.spec.containers
     not container.securityContext.runAsNonRoot
     msg := sprintf("Container %v must run as non-root user", [container.name])
 }
 
 deny contains msg if {
     input.request.kind.kind == "Pod"
-    container := input.request.object.spec.containers[_]
+    some container in input.request.object.spec.containers
     not container.securityContext.readOnlyRootFilesystem
     msg := sprintf("Container %v must use read-only root filesystem", [container.name])
 }
@@ -213,6 +219,7 @@ Prevents containers from running with unconfined seccomp profiles:
 
 ```rego
 package docker.authz
+import rego.v1
 
 default allow := false
 
@@ -225,7 +232,7 @@ deny if {
 }
 
 seccomp_unconfined if {
-    input.Body.HostConfig.SecurityOpt[_] == "seccomp:unconfined"
+    "seccomp:unconfined" in input.Body.HostConfig.SecurityOpt
 }
 ```
 
@@ -235,6 +242,7 @@ Blocks creation of privileged containers:
 
 ```rego
 package docker.authz
+import rego.v1
 
 default allow := false
 
@@ -253,6 +261,7 @@ Restricts which host paths can be mounted into containers:
 
 ```rego
 package docker.authz
+import rego.v1
 
 default allow := false
 
@@ -281,8 +290,8 @@ Controls the blast radius of infrastructure changes and prevents IAM modificatio
 
 ```rego
 package terraform.analysis
-
 import input as tfplan
+import rego.v1
 
 blast_radius := 30
 
@@ -321,13 +330,13 @@ Ensures all S3 buckets have encryption enabled:
 
 ```rego
 package terraform.analysis
-
 import input as tfplan
+import rego.v1
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_s3_bucket"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     not r.change.after.server_side_encryption_configuration
     msg := sprintf("S3 bucket %v does not have encryption enabled", [r.address])
 }
@@ -339,6 +348,7 @@ Enforces security compliance on S3 buckets before CloudFormation deployment:
 
 ```rego
 package system
+import rego.v1
 
 main := {
     "allow": count(deny) == 0,
@@ -377,6 +387,7 @@ Context-aware authorization based on organizational hierarchy:
 
 ```rego
 package httpapi.authz
+import rego.v1
 
 subordinates := {"alice": [], "charlie": [], "bob": ["alice"], "betty": ["charlie"]}
 
@@ -393,7 +404,7 @@ allow if {
     some username
     input.method == "GET"
     input.path = ["finance", "salary", username]
-    subordinates[input.user][_] == username
+    username in subordinates[input.user]
 }
 ```
 
@@ -403,6 +414,7 @@ JWT-based authentication with role verification:
 
 ```rego
 package httpapi.authz
+import rego.v1
 
 default allow := false
 
@@ -430,24 +442,24 @@ Restricts HTTP methods based on user permissions:
 
 ```rego
 package httpapi.authz
-
 import data.users
+import rego.v1
 
 default allow := false
 
 allow if {
     input.method == "GET"
-    users[input.user].permissions[_] == "read"
+    "read" in users[input.user].permissions
 }
 
 allow if {
     input.method in {"POST", "PUT", "PATCH"}
-    users[input.user].permissions[_] == "write"
+    "write" in users[input.user].permissions
 }
 
 allow if {
     input.method == "DELETE"
-    users[input.user].permissions[_] == "admin"
+    "admin" in users[input.user].permissions
 }
 ```
 
@@ -467,6 +479,7 @@ Core RBAC implementation with user/role/permission mappings:
 
 ```rego
 package rbac.authz
+import rego.v1
 
 # user-role assignments
 user_roles := {
@@ -486,9 +499,9 @@ default allow := false
 
 allow if {
     roles := user_roles[input.user]
-    r := roles[_]
+    some r in roles
     permissions := role_permissions[r]
-    p := permissions[_]
+    some p in permissions
     p == {"action": input.action, "object": input.object}
 }
 ```
@@ -499,6 +512,7 @@ Prevents conflicting role assignments for compliance:
 
 ```rego
 package rbac.authz
+import rego.v1
 
 sod_roles := [
     ["create-payment", "approve-payment"],
@@ -507,9 +521,9 @@ sod_roles := [
 
 sod_violation contains user if {
     some user
-    role1 := user_roles[user][_]
-    role2 := user_roles[user][_]
-    sod_roles[_] == [role1, role2]
+    some role1 in user_roles[user]
+    some role2 in user_roles[user]
+    [role1, role2] in sod_roles
 }
 ```
 
@@ -519,6 +533,7 @@ Restricts access based on time of day using ABAC:
 
 ```rego
 package abac.authz
+import rego.v1
 
 default allow := false
 
@@ -550,6 +565,7 @@ Validates configuration file syntax in CI/CD pipelines:
 
 ```rego
 package files
+import rego.v1
 
 # METADATA
 # entrypoint: true
@@ -588,6 +604,7 @@ Determines which tests to run based on changed files:
 
 ```rego
 package policy["pr-check"]
+import rego.v1
 
 go_change_prefixes := [
     "build/",
@@ -618,6 +635,7 @@ Enforces minimum test coverage thresholds:
 
 ```rego
 package cicd.coverage
+import rego.v1
 
 minimum_coverage := 80
 
@@ -644,6 +662,7 @@ Validate multiple aspects of input:
 
 ```rego
 package validation
+import rego.v1
 
 errors contains msg if {
     not input.username
@@ -676,6 +695,7 @@ Simple email format validation:
 
 ```rego
 package content.validation
+import rego.v1
 
 valid_email if {
     contains(input.email, "@")
@@ -692,17 +712,18 @@ Aggregate data from multiple sources:
 
 ```rego
 package transform
+import rego.v1
 
 total_cost_by_team[team] := total if {
     some team
-    resources := [r | r := input.resources[_]; r.team == team]
-    costs := [r.cost | r := resources[_]]
+    resources := [r | some r in input.resources; r.team == team]
+    costs := [r.cost | some r in resources]
     total := sum(costs)
 }
 
 resource_count_by_type[resource_type] := count(resources) if {
     some resource_type
-    resources := [r | r := input.resources[_]; r.type == resource_type]
+    resources := [r | some r in input.resources; r.type == resource_type]
 }
 ```
 
@@ -722,6 +743,7 @@ Validates IP addresses against allowed CIDR ranges:
 
 ```rego
 package network.policies
+import rego.v1
 
 allowed_cidrs := ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
@@ -743,6 +765,7 @@ Controls which external services can be accessed:
 
 ```rego
 package network.egress
+import rego.v1
 
 allowed_domains := {"api.github.com", "registry.npmjs.org", "*.amazonaws.com"}
 
@@ -764,16 +787,17 @@ Validates resources against PCI-DSS requirements:
 
 ```rego
 package compliance.pci
+import rego.v1
 
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.type == "database"
     not resource.encrypted
     msg := sprintf("Database %v must be encrypted for PCI-DSS compliance", [resource.id])
 }
 
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.type == "database"
     not resource.audit_logging_enabled
     msg := sprintf("Database %v must have audit logging for PCI-DSS compliance", [resource.id])
@@ -784,17 +808,102 @@ deny contains msg if {
 
 ---
 
-## Testing Your Policies
+### 9. Metadata Annotations
 
-Rego supports comprehensive unit testing using the `test_` prefix convention:
+Document and categorize policies using OPA's built-in metadata annotation system for governance, discovery, and type safety.
+
+**Use Cases:** Policy cataloging, entrypoint discovery, schema validation, severity classification, compliance framework tagging, documentation generation.
+
+**Example: Package-Level Metadata**
+
+Document an entire policy module with title, authors, and custom fields:
 
 ```rego
-package kubernetes.test_admission
+# METADATA
+# title: Kubernetes Admission Control
+# description: >-
+#   Validates Kubernetes resources against organization
+#   security standards.
+# authors:
+# - Platform Security Team <security@example.com>
+# custom:
+#   category: kubernetes
+#   compliance_framework: SOC2
+package kubernetes.admission
+
+import rego.v1
+```
+
+**Example: Entrypoint Rule Annotation**
+
+Mark decision rules for auto-discovery with severity classification:
+
+```rego
+package terraform.analysis
+
+import input as tfplan
+import rego.v1
+
+# METADATA
+# title: Deny unencrypted S3 buckets
+# description: Ensures all S3 buckets have server-side encryption
+# entrypoint: true
+# custom:
+#   severity: HIGH
+deny contains msg if {
+    some r in tfplan.resource_changes
+    r.type == "aws_s3_bucket"
+    "create" in r.change.actions
+    not r.change.after.server_side_encryption_configuration
+    msg := sprintf("S3 bucket %v does not have encryption enabled", [r.address])
+}
+```
+
+**Example: Runtime Metadata Access**
+
+Use `rego.metadata.rule()` for severity-aware violation reporting:
+
+```rego
+package security.reporter
+
+import rego.v1
+
+# METADATA
+# title: Deny privileged containers
+# entrypoint: true
+# custom:
+#   severity: HIGH
+#   category: pod-security
+violations contains violation if {
+    input.request.kind.kind == "Pod"
+    some container in input.request.object.spec.containers
+    container.securityContext.privileged == true
+    annotation := rego.metadata.rule()
+    violation := {
+        "severity": annotation.custom.severity,
+        "message": sprintf("privileged container %v is not allowed", [container.name]),
+    }
+}
+```
+
+[View detailed metadata annotation examples →](metadata-annotations.md)
+
+---
+
+## 10. Policy Testing
+
+OPA provides first-class support for testing policies. Tests are standard Rego rules prefixed with `test_` and run with the `opa test` command.
+
+**Basic Unit Test:**
+
+```rego
+package kubernetes.admission_test
 
 import data.kubernetes.admission
+import rego.v1
 
-test_image_safety if {
-    unsafe_image := {
+test_untrusted_image_denied if {
+    review := {
         "request": {
             "kind": {"kind": "Pod"},
             "object": {
@@ -808,14 +917,66 @@ test_image_safety if {
         }
     }
     expected := "image 'busybox' comes from untrusted registry"
-    admission.deny[expected] with input as unsafe_image
+    expected in admission.deny with input as review
+}
+```
+
+**Mocking Data and Functions with `with`:**
+
+```rego
+package api.authz_test
+
+import data.api.authz
+import rego.v1
+
+mock_users := {
+    "alice": {"permissions": ["read", "write", "admin"]},
+    "bob": {"permissions": ["read"]},
+}
+
+test_admin_can_delete if {
+    authz.allow with input as {"user": "alice", "method": "DELETE"}
+        with data.users as mock_users
+}
+
+test_reader_cannot_delete if {
+    not authz.allow with input as {"user": "bob", "method": "DELETE"}
+        with data.users as mock_users
+}
+```
+
+**Parameterized Tests:**
+
+```rego
+package validation_test
+
+import data.validation
+import rego.v1
+
+test_email_validation[description] if {
+    some description, tc in {
+        "valid email": {"input": {"email": "user@example.com"}, "expected": true},
+        "missing @": {"input": {"email": "userexample.com"}, "expected": false},
+        "empty email": {"input": {"email": ""}, "expected": false},
+    }
+    result := validation.valid_email with input as tc.input
+    result == tc.expected
 }
 ```
 
 Run tests with the OPA CLI:
 ```bash
+# Run all tests verbosely
 opa test . -v
+
+# Run with coverage analysis
+opa test --coverage --format=json .
+
+# Filter tests by name
+opa test . -v --run "test_admin"
 ```
+
+[View comprehensive policy testing guide →](policy-testing.md)
 
 ## Additional Resources
 

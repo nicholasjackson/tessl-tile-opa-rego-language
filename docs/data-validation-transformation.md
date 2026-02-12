@@ -9,8 +9,23 @@ This document provides comprehensive examples of data validation, transformation
 Validate multiple aspects of input data with field-level error reporting.
 
 ```rego
+# METADATA
+# title: Input Validation
+# description: Validates multiple aspects of input data with field-level error reporting
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation
 
+import rego.v1
+
+# METADATA
+# title: Validation errors
+# description: Collects field-level validation errors for input data
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not input.username
     msg := "username is required"
@@ -36,6 +51,12 @@ errors contains msg if {
     msg := "age must be 18 or older"
 }
 
+# METADATA
+# title: Validation result
+# description: Returns true when all validation checks pass with no errors
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 valid if {
     count(errors) == 0
 }
@@ -48,14 +69,35 @@ valid if {
 Return detailed error information with field-level errors and severity levels.
 
 ```rego
+# METADATA
+# title: Structured Error Responses
+# description: Returns detailed error information with field-level errors and severity levels
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation
 
+import rego.v1
+
+# METADATA
+# title: Validation result
+# description: Aggregates errors and warnings into a structured validation response
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 result := {
     "valid": count(errors) == 0,
     "errors": errors,
     "warnings": warnings,
 }
 
+# METADATA
+# title: Validation errors
+# description: Collects field-level validation errors for password requirements
+# entrypoint: true
+# custom:
+#   severity: HIGH
 errors contains error if {
     not input.password
     error := {
@@ -74,6 +116,12 @@ errors contains error if {
     }
 }
 
+# METADATA
+# title: Validation warnings
+# description: Collects field-level warnings for password strength recommendations
+# entrypoint: true
+# custom:
+#   severity: LOW
 warnings contains warning if {
     count(input.password) < 12
     warning := {
@@ -100,8 +148,23 @@ warnings contains warning if {
 Validate email format using pattern matching.
 
 ```rego
+# METADATA
+# title: Email Validation
+# description: Validates email format using pattern matching
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package content.validation
 
+import rego.v1
+
+# METADATA
+# title: Valid email check
+# description: Validates that the input email has a proper format with domain
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 valid_email if {
     contains(input.email, "@")
     parts := split(input.email, "@")
@@ -116,6 +179,12 @@ advanced_email_validation if {
     regex.match(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`, input.email)
 }
 
+# METADATA
+# title: Email validation errors
+# description: Collects error messages for invalid email formats
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not valid_email
     msg := sprintf("invalid email format: %v", [input.email])
@@ -129,7 +198,16 @@ errors contains msg if {
 Validate URL format and allowed protocols.
 
 ```rego
+# METADATA
+# title: URL Validation
+# description: Validates URL format and allowed protocols
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.url
+
+import rego.v1
 
 allowed_protocols := {"https", "http"}
 
@@ -142,6 +220,12 @@ valid_url if {
     parts[1] != ""
 }
 
+# METADATA
+# title: URL validation errors
+# description: Collects error messages for invalid URLs and protocol violations
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not valid_url
     msg := sprintf("invalid URL: %v", [input.url])
@@ -161,15 +245,36 @@ errors contains msg if {
 Filter content containing banned words with case-insensitive matching.
 
 ```rego
+# METADATA
+# title: Content Filtering and Moderation
+# description: Filters content containing banned words with case-insensitive matching
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package content.moderation
+
+import rego.v1
 
 banned_words := {"hate", "kill", "spam", "offensive"}
 
+# METADATA
+# title: Content violations
+# description: Collects banned words found in the input message
+# entrypoint: true
+# custom:
+#   severity: HIGH
 violations contains word if {
     some word in banned_words
     contains(lower(input.message), word)
 }
 
+# METADATA
+# title: Content deny decision
+# description: Denies content when any banned word violations are detected
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny if {
     count(violations) > 0
 }
@@ -193,30 +298,45 @@ message := "content contains prohibited words" if {
 Filter and project objects based on criteria.
 
 ```rego
+# METADATA
+# title: Object Filtering and Projection
+# description: Filters and projects objects based on criteria
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package transform
 
+import rego.v1
+
+# METADATA
+# title: Active users
+# description: Filters users to return only those with active status
+# entrypoint: true
+# custom:
+#   severity: LOW
 # Filter active users
 active_users := {user |
-    user := input.users[_]
+    some user in input.users
     user.status == "active"
 }
 
 # Filter admin users
 admin_users := {user |
-    user := input.users[_]
+    some user in input.users
     "admin" in user.roles
 }
 
 # Project specific fields
 user_emails := {email |
-    user := input.users[_]
+    some user in input.users
     user.status == "active"
     email := user.email
 }
 
 # Create user summary objects
 user_summaries[user.id] := summary if {
-    user := input.users[_]
+    some user in input.users
     summary := {
         "name": user.name,
         "email": user.email,
@@ -232,34 +352,49 @@ user_summaries[user.id] := summary if {
 Aggregate and group data from multiple sources.
 
 ```rego
+# METADATA
+# title: Data Aggregation and Grouping
+# description: Aggregates and groups data from multiple sources
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package transform
 
+import rego.v1
+
+# METADATA
+# title: Total cost by team
+# description: Calculates total resource cost grouped by team
+# entrypoint: true
+# custom:
+#   severity: LOW
 # Total cost by team
 total_cost_by_team[team] := total if {
     some team
-    resources := [r | r := input.resources[_]; r.team == team]
-    costs := [r.cost | r := resources[_]]
+    resources := [r | some r in input.resources; r.team == team]
+    costs := [r.cost | some r in resources]
     total := sum(costs)
 }
 
 # Resource count by type
 resource_count_by_type[resource_type] := count(resources) if {
     some resource_type
-    resources := [r | r := input.resources[_]; r.type == resource_type]
+    resources := [r | some r in input.resources; r.type == resource_type]
 }
 
 # Average cost by region
 average_cost_by_region[region] := avg if {
     some region
-    resources := [r | r := input.resources[_]; r.region == region]
-    costs := [r.cost | r := resources[_]]
+    resources := [r | some r in input.resources; r.region == region]
+    costs := [r.cost | some r in resources]
     avg := sum(costs) / count(costs)
 }
 
 # Group users by department
 users_by_department[dept] := users if {
     some dept
-    users := [u | u := input.users[_]; u.department == dept]
+    users := [u | some u in input.users; u.department == dept]
 }
 ```
 
@@ -270,11 +405,26 @@ users_by_department[dept] := users if {
 Validate data against expected schema structures.
 
 ```rego
+# METADATA
+# title: Schema Validation
+# description: Validates data against expected schema structures
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.schema
+
+import rego.v1
 
 # Validate required fields exist
 required_fields := ["id", "name", "email", "created_at"]
 
+# METADATA
+# title: Schema validation errors
+# description: Collects errors for missing required fields, invalid types, and malformed structures
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     some field in required_fields
     not object.get(input, field, null)
@@ -325,7 +475,16 @@ errors contains msg if {
 Clean and normalize input data.
 
 ```rego
+# METADATA
+# title: Data Sanitization and Normalization
+# description: Cleans and normalizes input data using transformation helpers
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package transform.sanitize
+
+import rego.v1
 
 # Normalize email to lowercase
 normalize_email(email) := lower(trim_space(email))
@@ -362,7 +521,16 @@ sanitized_user := {
 Convert and coerce data types safely.
 
 ```rego
+# METADATA
+# title: Type Coercion and Conversion
+# description: Converts and coerces data types safely
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package transform.convert
+
+import rego.v1
 
 # String to number conversion with validation
 to_number(str) := num if {
@@ -383,7 +551,7 @@ to_boolean(true) := true
 to_boolean(false) := false
 
 # Convert array to set
-to_set(arr) := {x | x := arr[_]} if {
+to_set(arr) := {x | some x in arr} if {
     is_array(arr)
 }
 
@@ -412,7 +580,16 @@ parse_date(iso_date) := date if {
 Reusable string manipulation functions.
 
 ```rego
+# METADATA
+# title: String Manipulation Helpers
+# description: Reusable string manipulation functions
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package helpers
+
+import rego.v1
 
 # Extract file extension
 file_extension(filename) := ext if {
@@ -467,7 +644,16 @@ capitalize(str) := result if {
 Reusable collection manipulation functions.
 
 ```rego
+# METADATA
+# title: Collection Helpers and Utilities
+# description: Reusable collection manipulation functions
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package helpers
+
+import rego.v1
 
 # Check if all elements satisfy condition
 all_satisfy(collection, condition) if {
@@ -478,25 +664,25 @@ all_satisfy(collection, condition) if {
 
 # Find elements matching condition
 find_all(collection, condition) := results if {
-    results := {item | item := collection[_]; condition(item)}
+    results := {item | some item in collection; condition(item)}
 }
 
 # Group by field
 group_by(collection, field) := grouped if {
     grouped := {value: items |
         some value
-        items := [item | item := collection[_]; item[field] == value]
+        items := [item | some item in collection; item[field] == value]
     }
 }
 
 # Get unique values from array
-unique(arr) := {x | x := arr[_]}
+unique(arr) := {x | some x in arr}
 
 # Flatten nested arrays
 flatten(arr) := flat if {
     flat := [x |
         some item in arr
-        x := item[_]
+        some x in item
     ]
 }
 
@@ -505,7 +691,7 @@ intersect_all(sets) := result if {
     count(sets) > 0
     first := sets[0]
     result := {x |
-        x := first[_]
+        some x in first
         every s in sets {
             x in s
         }
@@ -520,8 +706,23 @@ intersect_all(sets) := result if {
 Validate complex nested object structures.
 
 ```rego
+# METADATA
+# title: Nested Object Validation
+# description: Validates complex nested object structures
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.nested
 
+import rego.v1
+
+# METADATA
+# title: Nested validation errors
+# description: Collects errors for missing or malformed nested object fields
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not input.user
     msg := "user object is required"
@@ -577,8 +778,23 @@ errors contains msg if {
 Validate arrays with size and content constraints.
 
 ```rego
+# METADATA
+# title: Array Validation
+# description: Validates arrays with size and content constraints
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.array
 
+import rego.v1
+
+# METADATA
+# title: Array validation errors
+# description: Collects errors for invalid array size, uniqueness, and element types
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not is_array(input.items)
     msg := "items must be an array"
@@ -596,7 +812,7 @@ errors contains msg if {
 
 # Validate all items are unique
 errors contains msg if {
-    unique_items := {x | x := input.items[_]}
+    unique_items := {x | some x in input.items}
     count(unique_items) != count(input.items)
     msg := "items must be unique"
 }
@@ -626,10 +842,25 @@ errors contains msg if {
 Validate values against allowed enumerations.
 
 ```rego
+# METADATA
+# title: Enum Value Validation
+# description: Validates values against allowed enumerations
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.enum
+
+import rego.v1
 
 allowed_statuses := {"active", "inactive", "pending", "suspended"}
 
+# METADATA
+# title: Enum validation errors
+# description: Collects errors for values not in allowed enumerations
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not input.status
     msg := "status is required"
@@ -665,8 +896,23 @@ errors contains msg if {
 Validate numeric ranges and boundaries.
 
 ```rego
+# METADATA
+# title: Range and Boundary Checks
+# description: Validates numeric ranges and boundaries
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.range
 
+import rego.v1
+
+# METADATA
+# title: Range validation errors
+# description: Collects errors for values outside allowed numeric ranges and boundaries
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not input.age
     msg := "age is required"
@@ -722,8 +968,23 @@ errors contains msg if {
 Validate patterns using regular expressions.
 
 ```rego
+# METADATA
+# title: Regular Expression Validation
+# description: Validates patterns using regular expressions
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.regex
 
+import rego.v1
+
+# METADATA
+# title: Regex validation errors
+# description: Collects errors for inputs that do not match required patterns
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Username validation (alphanumeric and underscores)
 errors contains msg if {
     not regex.match(`^[a-zA-Z0-9_]{3,20}$`, input.username)
@@ -778,8 +1039,23 @@ errors contains msg if {
 Validate date and time formats.
 
 ```rego
+# METADATA
+# title: Date and Time Validation
+# description: Validates date and time formats
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.datetime
 
+import rego.v1
+
+# METADATA
+# title: Date and time validation errors
+# description: Collects errors for invalid date and time formats and component values
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # ISO 8601 date validation
 errors contains msg if {
     not regex.match(`^\d{4}-\d{2}-\d{2}$`, input.date)
@@ -841,7 +1117,16 @@ errors contains msg if {
 Validate phone numbers in various formats.
 
 ```rego
+# METADATA
+# title: Phone Number Validation
+# description: Validates phone numbers in various formats
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.phone
+
+import rego.v1
 
 # US phone number validation (various formats)
 valid_us_phone if {
@@ -860,6 +1145,12 @@ valid_us_phone if {
     regex.match(`^\+1\d{10}$`, input.phone)
 }
 
+# METADATA
+# title: Phone validation errors
+# description: Collects errors for invalid phone number formats
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 errors contains msg if {
     not valid_us_phone
     msg := "invalid US phone number format"
@@ -899,8 +1190,23 @@ errors contains msg if {
 Validate credit card numbers using Luhn algorithm pattern.
 
 ```rego
+# METADATA
+# title: Credit Card Validation
+# description: Validates credit card numbers, CVV, and expiration dates
+# authors:
+# - Policy Engineering Team <policy-eng@example.com>
+# custom:
+#   category: data-validation
 package validation.creditcard
 
+import rego.v1
+
+# METADATA
+# title: Credit card validation errors
+# description: Collects errors for invalid card numbers, CVV, and expiration dates
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Basic credit card format validation
 errors contains msg if {
     not input.card_number

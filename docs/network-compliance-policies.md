@@ -22,6 +22,8 @@ Validates that IP addresses fall within approved CIDR ranges, commonly used for 
 ```rego
 package network.policies
 
+import rego.v1
+
 # Allowed private network ranges
 allowed_cidrs := [
     "10.0.0.0/8",
@@ -61,6 +63,8 @@ Controls outbound network traffic to ensure services only communicate with appro
 
 ```rego
 package network.egress
+
+import rego.v1
 
 # Approved external domains
 allowed_domains := {
@@ -112,6 +116,8 @@ Enforces network segmentation to isolate workloads based on sensitivity levels.
 ```rego
 package network.segmentation
 
+import rego.v1
+
 # Network segment definitions
 segments := {
     "dmz": {
@@ -156,9 +162,11 @@ Validates firewall rules to ensure they follow security best practices.
 ```rego
 package network.firewall
 
+import rego.v1
+
 # Deny overly permissive firewall rules
 deny contains msg if {
-    rule := input.firewall_rules[_]
+    some rule in input.firewall_rules
     rule.source_range == "0.0.0.0/0"
     rule.action == "allow"
     sensitive_port(rule.port)
@@ -172,7 +180,7 @@ sensitive_port(port) if {
 
 # Require justification for broad access rules
 deny contains msg if {
-    rule := input.firewall_rules[_]
+    some rule in input.firewall_rules
     rule.source_range == "0.0.0.0/0"
     not rule.justification
     msg := sprintf("Firewall rule %v allows broad access but lacks justification", [rule.name])
@@ -196,6 +204,7 @@ Controls VPN access based on user attributes and network requirements.
 package network.vpn
 
 import data.users
+import rego.v1
 
 # Deny VPN access outside business hours for non-privileged users
 deny contains msg if {
@@ -234,10 +243,12 @@ Ensures load balancers are configured securely.
 ```rego
 package network.loadbalancer
 
+import rego.v1
+
 # Require HTTPS listeners
 deny contains msg if {
     lb := input.load_balancer
-    listener := lb.listeners[_]
+    some listener in lb.listeners
     listener.protocol == "HTTP"
     listener.port != 80
     msg := sprintf("Load balancer %v has HTTP listener on non-standard port %v", [lb.name, listener.port])
@@ -246,7 +257,7 @@ deny contains msg if {
 # Enforce TLS version for HTTPS listeners
 deny contains msg if {
     lb := input.load_balancer
-    listener := lb.listeners[_]
+    some listener in lb.listeners
     listener.protocol == "HTTPS"
     not valid_tls_version(listener.ssl_policy)
     msg := sprintf("Load balancer %v listener uses insecure TLS version", [lb.name])
@@ -271,10 +282,12 @@ Validates DNS configurations to prevent common security issues.
 ```rego
 package network.dns
 
+import rego.v1
+
 # Prevent DNS zone transfers to unauthorized servers
 deny contains msg if {
     zone := input.dns_zone
-    transfer := zone.zone_transfers[_]
+    some transfer in zone.zone_transfers
     not is_authorized_server(transfer.server)
     msg := sprintf("DNS zone %v allows transfers to unauthorized server %v", [zone.name, transfer.server])
 }
@@ -295,7 +308,7 @@ deny contains msg if {
 # Validate DNS record patterns
 deny contains msg if {
     zone := input.dns_zone
-    record := zone.records[_]
+    some record in zone.records
     record.type == "A"
     not valid_ip_format(record.value)
     msg := sprintf("DNS A record for %v has invalid IP format", [record.name])
@@ -313,6 +326,8 @@ Implements zero-trust network access principles.
 
 ```rego
 package network.zerotrust
+
+import rego.v1
 
 # Deny all traffic by default
 default allow := false
@@ -353,6 +368,8 @@ Enforces security policies in service mesh environments.
 
 ```rego
 package network.servicemesh
+
+import rego.v1
 
 # Require mTLS for inter-service communication
 deny contains msg if {
@@ -400,9 +417,11 @@ Validates that systems handling payment card data meet PCI-DSS encryption requir
 ```rego
 package compliance.pci.encryption
 
+import rego.v1
+
 # Require encryption for databases storing cardholder data
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.type == "database"
     resource.stores_cardholder_data
     not resource.encrypted_at_rest
@@ -411,7 +430,7 @@ deny contains msg if {
 
 # Require strong encryption algorithms
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.encrypted_at_rest
     not valid_encryption_algorithm(resource.encryption_algorithm)
     msg := sprintf("Resource %v uses weak encryption algorithm %v (PCI-DSS Req 3.5)", [resource.id, resource.encryption_algorithm])
@@ -423,7 +442,7 @@ valid_encryption_algorithm(algorithm) if {
 
 # Require encryption in transit
 deny contains msg if {
-    connection := input.connections[_]
+    some connection in input.connections
     connection.transmits_cardholder_data
     not connection.encrypted_in_transit
     msg := sprintf("Connection %v transmits cardholder data without encryption (PCI-DSS Req 4.1)", [connection.id])
@@ -437,9 +456,11 @@ Ensures audit logging is enabled for systems in PCI-DSS scope.
 ```rego
 package compliance.pci.logging
 
+import rego.v1
+
 # Require audit logging for all PCI-relevant systems
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.pci_scope
     not resource.audit_logging_enabled
     msg := sprintf("Resource %v is in PCI scope but lacks audit logging (PCI-DSS Req 10.1)", [resource.id])
@@ -447,7 +468,7 @@ deny contains msg if {
 
 # Validate log retention period
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.pci_scope
     resource.log_retention_days < 365
     msg := sprintf("Resource %v has insufficient log retention: %v days (PCI-DSS Req 10.7)", [resource.id, resource.log_retention_days])
@@ -455,7 +476,7 @@ deny contains msg if {
 
 # Require logging of authentication attempts
 deny contains msg if {
-    system := input.systems[_]
+    some system in input.systems
     system.handles_authentication
     not logs_authentication_events(system)
     msg := sprintf("System %v must log authentication attempts (PCI-DSS Req 10.2.4)", [system.id])
@@ -473,16 +494,18 @@ Validates access control mechanisms meet PCI-DSS requirements.
 ```rego
 package compliance.pci.access
 
+import rego.v1
+
 # Require unique user IDs
 deny contains msg if {
-    user := input.users[_]
-    count([u | u := input.users[_]; u.user_id == user.user_id]) > 1
+    some user in input.users
+    count([u | some u in input.users; u.user_id == user.user_id]) > 1
     msg := sprintf("Multiple users share user ID %v (PCI-DSS Req 8.1)", [user.user_id])
 }
 
 # Require password complexity
 deny contains msg if {
-    user := input.users[_]
+    some user in input.users
     user.has_password
     not meets_password_requirements(user.password_policy)
     msg := sprintf("User %v password policy does not meet requirements (PCI-DSS Req 8.2.3)", [user.user_id])
@@ -497,7 +520,7 @@ meets_password_requirements(policy) if {
 
 # Require MFA for remote access
 deny contains msg if {
-    access := input.access_requests[_]
+    some access in input.access_requests
     access.access_type == "remote"
     access.target_scope == "cardholder_data_environment"
     not access.mfa_enabled
@@ -512,9 +535,11 @@ Ensures compliance with GDPR data protection requirements.
 ```rego
 package compliance.gdpr.protection
 
+import rego.v1
+
 # Require encryption for personal data
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.stores_personal_data
     not resource.encrypted
     msg := sprintf("Resource %v stores personal data without encryption (GDPR Art. 32)", [resource.id])
@@ -522,8 +547,8 @@ deny contains msg if {
 
 # Validate data minimization
 deny contains msg if {
-    collection := input.data_collections[_]
-    field := collection.fields[_]
+    some collection in input.data_collections
+    some field in collection.fields
     field.data_category == "personal"
     not field.necessary_for_purpose
     msg := sprintf("Collection %v includes unnecessary personal data field %v (GDPR Art. 5(1)(c))", [collection.name, field.name])
@@ -531,7 +556,7 @@ deny contains msg if {
 
 # Require data retention policies
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.stores_personal_data
     not resource.retention_policy
     msg := sprintf("Resource %v lacks data retention policy (GDPR Art. 5(1)(e))", [resource.id])
@@ -539,7 +564,7 @@ deny contains msg if {
 
 # Validate consent mechanism
 deny contains msg if {
-    processing := input.data_processing[_]
+    some processing in input.data_processing
     processing.legal_basis == "consent"
     not valid_consent(processing.consent_mechanism)
     msg := sprintf("Processing %v has invalid consent mechanism (GDPR Art. 7)", [processing.id])
@@ -560,9 +585,11 @@ Implements controls to support GDPR data subject rights.
 ```rego
 package compliance.gdpr.rights
 
+import rego.v1
+
 # Require data subject access request (DSAR) capability
 deny contains msg if {
-    system := input.systems[_]
+    some system in input.systems
     system.processes_personal_data
     not system.supports_dsar
     msg := sprintf("System %v must support data subject access requests (GDPR Art. 15)", [system.id])
@@ -570,7 +597,7 @@ deny contains msg if {
 
 # Validate right to erasure implementation
 deny contains msg if {
-    system := input.systems[_]
+    some system in input.systems
     system.processes_personal_data
     not system.supports_erasure
     not has_valid_retention_justification(system)
@@ -587,7 +614,7 @@ has_valid_retention_justification(system) if {
 
 # Require data portability for automated processing
 deny contains msg if {
-    processing := input.data_processing[_]
+    some processing in input.data_processing
     processing.automated
     processing.legal_basis == "consent"
     not processing.supports_portability
@@ -602,9 +629,11 @@ Validates protection of Protected Health Information under HIPAA.
 ```rego
 package compliance.hipaa.phi
 
+import rego.v1
+
 # Require encryption for PHI at rest
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.contains_phi
     not resource.encrypted_at_rest
     msg := sprintf("Resource %v contains PHI but is not encrypted (HIPAA §164.312(a)(2)(iv))", [resource.id])
@@ -612,7 +641,7 @@ deny contains msg if {
 
 # Require encryption for PHI in transit
 deny contains msg if {
-    transmission := input.transmissions[_]
+    some transmission in input.transmissions
     transmission.contains_phi
     not transmission.encrypted
     msg := sprintf("Transmission %v contains PHI without encryption (HIPAA §164.312(e)(1))", [transmission.id])
@@ -620,7 +649,7 @@ deny contains msg if {
 
 # Validate access controls for PHI
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.contains_phi
     not resource.access_controls.role_based
     msg := sprintf("Resource %v with PHI lacks role-based access controls (HIPAA §164.308(a)(4))", [resource.id])
@@ -628,7 +657,7 @@ deny contains msg if {
 
 # Require audit logs for PHI access
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.contains_phi
     not resource.audit_logging
     msg := sprintf("Resource %v with PHI must have audit logging (HIPAA §164.312(b))", [resource.id])
@@ -636,7 +665,7 @@ deny contains msg if {
 
 # Validate minimum necessary principle
 deny contains msg if {
-    access := input.access_grants[_]
+    some access in input.access_grants
     access.resource_contains_phi
     not is_minimum_necessary(access)
     msg := sprintf("Access grant %v violates minimum necessary principle (HIPAA §164.502(b))", [access.id])
@@ -656,6 +685,8 @@ Ensures data stays within required geographic boundaries for compliance.
 ```rego
 package compliance.data_residency
 
+import rego.v1
+
 # Define region requirements by data classification
 region_requirements := {
     "eu_customer_data": {"allowed_regions": {"eu-west-1", "eu-central-1", "eu-north-1"}},
@@ -665,7 +696,7 @@ region_requirements := {
 
 # Deny resources storing data outside allowed regions
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     classification := resource.data_classification
     requirements := region_requirements[classification]
     requirements.allowed_regions != "*"
@@ -680,9 +711,9 @@ deny contains msg if {
 
 # Validate cross-region replication
 deny contains msg if {
-    resource := input.resources[_]
+    some resource in input.resources
     resource.replication_enabled
-    replica_region := resource.replica_regions[_]
+    some replica_region in resource.replica_regions
     classification := resource.data_classification
     requirements := region_requirements[classification]
     requirements.allowed_regions != "*"
@@ -696,7 +727,7 @@ deny contains msg if {
 
 # Prevent data transfer outside allowed regions
 deny contains msg if {
-    transfer := input.data_transfers[_]
+    some transfer in input.data_transfers
     classification := transfer.data_classification
     requirements := region_requirements[classification]
     requirements.allowed_regions != "*"
@@ -716,9 +747,11 @@ Implements SOC 2 Trust Service Criteria controls.
 ```rego
 package compliance.soc2
 
+import rego.v1
+
 # CC6.1 - Logical Access Controls
 deny contains msg if {
-    system := input.systems[_]
+    some system in input.systems
     system.criticality == "high"
     not system.requires_authentication
     msg := sprintf("System %v lacks authentication requirements (SOC 2 CC6.1)", [system.id])
@@ -726,7 +759,7 @@ deny contains msg if {
 
 # CC6.6 - Encryption
 deny contains msg if {
-    data_store := input.data_stores[_]
+    some data_store in input.data_stores
     data_store.sensitivity in {"confidential", "restricted"}
     not data_store.encrypted_at_rest
     msg := sprintf("Sensitive data store %v is not encrypted (SOC 2 CC6.6)", [data_store.id])
@@ -734,7 +767,7 @@ deny contains msg if {
 
 # CC6.7 - Transmission Security
 deny contains msg if {
-    connection := input.connections[_]
+    some connection in input.connections
     connection.data_classification != "public"
     not connection.encrypted
     msg := sprintf("Non-public data connection %v is not encrypted (SOC 2 CC6.7)", [connection.id])
@@ -742,14 +775,14 @@ deny contains msg if {
 
 # CC7.2 - System Monitoring
 deny contains msg if {
-    system := input.systems[_]
+    some system in input.systems
     not system.monitoring_enabled
     msg := sprintf("System %v lacks monitoring (SOC 2 CC7.2)", [system.id])
 }
 
 # CC7.3 - Change Management
 deny contains msg if {
-    change := input.changes[_]
+    some change in input.changes
     change.impact == "high"
     not change.approved
     msg := sprintf("High-impact change %v is not approved (SOC 2 CC7.3)", [change.id])
@@ -757,7 +790,7 @@ deny contains msg if {
 
 # A1.2 - Availability Monitoring
 deny contains msg if {
-    service := input.services[_]
+    some service in input.services
     service.sla_required
     not service.availability_monitoring
     msg := sprintf("Service %v with SLA lacks availability monitoring (SOC 2 A1.2)", [service.id])
@@ -775,6 +808,8 @@ Enforces use of secure TLS/SSL versions and cipher suites.
 ```rego
 package security.tls
 
+import rego.v1
+
 # Deny use of deprecated TLS versions
 deny contains msg if {
     config := input.tls_config
@@ -785,7 +820,7 @@ deny contains msg if {
 # Require strong cipher suites
 deny contains msg if {
     config := input.tls_config
-    cipher := config.cipher_suites[_]
+    some cipher in config.cipher_suites
     is_weak_cipher(cipher)
     msg := sprintf("Weak cipher suite detected: %v", [cipher])
 }
@@ -824,15 +859,17 @@ Validates SSL/TLS certificates meet security requirements.
 ```rego
 package security.certificates
 
+import rego.v1
+
 # Require valid certificate expiry
 deny contains msg if {
-    cert := input.certificates[_]
+    some cert in input.certificates
     is_expired(cert.not_after)
     msg := sprintf("Certificate %v has expired", [cert.common_name])
 }
 
 deny contains msg if {
-    cert := input.certificates[_]
+    some cert in input.certificates
     expires_soon(cert.not_after, 30)
     msg := sprintf("Certificate %v expires within 30 days", [cert.common_name])
 }
@@ -850,14 +887,14 @@ expires_soon(not_after, days) if {
 
 # Require strong key sizes
 deny contains msg if {
-    cert := input.certificates[_]
+    some cert in input.certificates
     cert.key_algorithm == "RSA"
     cert.key_size < 2048
     msg := sprintf("Certificate %v uses RSA key size %v, minimum is 2048", [cert.common_name, cert.key_size])
 }
 
 deny contains msg if {
-    cert := input.certificates[_]
+    some cert in input.certificates
     cert.key_algorithm == "EC"
     cert.key_size < 256
     msg := sprintf("Certificate %v uses EC key size %v, minimum is 256", [cert.common_name, cert.key_size])
@@ -865,14 +902,14 @@ deny contains msg if {
 
 # Validate certificate chain
 deny contains msg if {
-    cert := input.certificates[_]
+    some cert in input.certificates
     not cert.chain_valid
     msg := sprintf("Certificate %v has invalid chain", [cert.common_name])
 }
 
 # Require certificates from trusted CAs
 deny contains msg if {
-    cert := input.certificates[_]
+    some cert in input.certificates
     not is_trusted_ca(cert.issuer)
     msg := sprintf("Certificate %v issued by untrusted CA: %v", [cert.common_name, cert.issuer])
 }
@@ -896,9 +933,11 @@ Enforces mutual TLS authentication for service-to-service communication.
 ```rego
 package security.mtls
 
+import rego.v1
+
 # Require mTLS for internal service communication
 deny contains msg if {
-    connection := input.connections[_]
+    some connection in input.connections
     connection.source_type == "service"
     connection.destination_type == "service"
     not connection.mtls_enabled
@@ -910,7 +949,7 @@ deny contains msg if {
 
 # Validate client certificate is presented
 deny contains msg if {
-    connection := input.connections[_]
+    some connection in input.connections
     connection.mtls_enabled
     not connection.client_cert_presented
     msg := sprintf("mTLS connection from %v missing client certificate", [connection.source])
@@ -918,7 +957,7 @@ deny contains msg if {
 
 # Require certificate validation
 deny contains msg if {
-    connection := input.connections[_]
+    some connection in input.connections
     connection.mtls_enabled
     not connection.verify_client_cert
     msg := sprintf("mTLS connection from %v does not verify client certificate", [connection.source])
@@ -926,7 +965,7 @@ deny contains msg if {
 
 # Validate certificate-based authorization
 deny contains msg if {
-    connection := input.connections[_]
+    some connection in input.connections
     connection.mtls_enabled
     not has_valid_spiffe_id(connection.client_cert_subject)
     msg := sprintf("Client certificate for %v lacks valid SPIFFE ID", [connection.source])
@@ -938,14 +977,14 @@ has_valid_spiffe_id(subject) if {
 
 # Require certificate rotation policy
 deny contains msg if {
-    service := input.services[_]
+    some service in input.services
     service.uses_mtls
     not service.cert_rotation_policy
     msg := sprintf("Service %v uses mTLS but lacks certificate rotation policy", [service.name])
 }
 
 deny contains msg if {
-    service := input.services[_]
+    some service in input.services
     service.cert_rotation_policy
     service.cert_rotation_days > 90
     msg := sprintf("Service %v certificate rotation period %v days exceeds maximum of 90", [
@@ -966,9 +1005,11 @@ Ensures comprehensive audit logging for security and compliance.
 ```rego
 package security.audit
 
+import rego.v1
+
 # Require audit logging for sensitive operations
 deny contains msg if {
-    operation := input.operations[_]
+    some operation in input.operations
     is_sensitive_operation(operation.type)
     not operation.audit_logged
     msg := sprintf("Sensitive operation %v must be audit logged", [operation.type])
@@ -988,7 +1029,7 @@ is_sensitive_operation(op_type) if {
 
 # Validate log retention periods
 deny contains msg if {
-    system := input.systems[_]
+    some system in input.systems
     system.audit_logging_enabled
     system.log_retention_days < minimum_retention_days(system.compliance_scope)
     msg := sprintf("System %v log retention %v days is below minimum for %v compliance", [
@@ -1019,7 +1060,7 @@ deny contains msg if {
 
 # Validate log fields
 deny contains msg if {
-    log_entry := input.log_entries[_]
+    some log_entry in input.log_entries
     not has_required_fields(log_entry)
     msg := sprintf("Log entry missing required fields: %v", [log_entry.id])
 }
@@ -1034,7 +1075,7 @@ has_required_fields(entry) if {
 
 # Require centralized logging
 deny contains msg if {
-    system := input.systems[_]
+    some system in input.systems
     system.generates_audit_logs
     not system.centralized_logging
     msg := sprintf("System %v must send audit logs to central logging", [system.id])

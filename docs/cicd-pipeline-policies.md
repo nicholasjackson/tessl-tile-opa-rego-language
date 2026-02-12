@@ -13,6 +13,8 @@ Validates configuration file syntax to catch errors before deployment.
 ```rego
 package cicd.validation
 
+import rego.v1
+
 # METADATA
 # description: Validates YAML and JSON file syntax in pull requests
 # entrypoint: true
@@ -54,6 +56,8 @@ Validates TOML configuration files commonly used in CI/CD pipelines.
 ```rego
 package cicd.validation
 
+import rego.v1
+
 deny contains sprintf("%s contains invalid TOML syntax", [filename]) if {
     some filename in filenames
     extension(filename) == "toml"
@@ -84,6 +88,8 @@ Ensures configuration files follow required schemas.
 
 ```rego
 package cicd.validation
+
+import rego.v1
 
 required_package_json_fields := ["name", "version", "description", "license"]
 
@@ -118,6 +124,8 @@ Determines which test suites to run based on file changes.
 
 ```rego
 package cicd.test_routing
+
+import rego.v1
 
 go_change_prefixes := [
     "internal/",
@@ -193,6 +201,8 @@ Requires integration tests only when critical paths are modified.
 ```rego
 package cicd.test_requirements
 
+import rego.v1
+
 critical_paths := [
     "services/payment/",
     "services/auth/",
@@ -249,6 +259,8 @@ Enforces minimum test coverage percentages.
 ```rego
 package cicd.coverage
 
+import rego.v1
+
 minimum_coverage := 80
 minimum_new_code_coverage := 90
 
@@ -277,6 +289,8 @@ Ensures coverage doesn't decrease between builds.
 ```rego
 package cicd.coverage
 
+import rego.v1
+
 deny contains msg if {
     current := input.current_coverage
     previous := input.previous_coverage
@@ -301,6 +315,8 @@ Requires test files for new source files.
 
 ```rego
 package cicd.test_requirements
+
+import rego.v1
 
 test_required_extensions := {"go", "py", "js", "ts", "java"}
 
@@ -363,6 +379,8 @@ Prevents direct commits to protected branches.
 ```rego
 package cicd.branch_protection
 
+import rego.v1
+
 protected_branches := {"main", "master", "production", "release"}
 
 deny contains sprintf("Direct commits to protected branch '%s' are not allowed", [branch]) if {
@@ -399,6 +417,8 @@ Enforces branch naming standards.
 ```rego
 package cicd.branch_naming
 
+import rego.v1
+
 valid_prefixes := {"feature/", "bugfix/", "hotfix/", "release/", "chore/"}
 
 deny contains sprintf("Branch name '%s' must start with one of: %v", [branch, valid_prefixes]) if {
@@ -433,6 +453,8 @@ Enforces conventional commit message format.
 
 ```rego
 package cicd.commit_validation
+
+import rego.v1
 
 conventional_types := {
     "feat", "fix", "docs", "style", "refactor",
@@ -479,6 +501,8 @@ Ensures commit messages reference issue tracking.
 ```rego
 package cicd.commit_validation
 
+import rego.v1
+
 deny contains "Commit message must reference an issue (e.g., 'fixes #123' or 'relates to PROJ-456')" if {
     message := lower(input.commit.message)
     not contains_issue_reference(message)
@@ -518,6 +542,8 @@ Requires different approval levels for different environments.
 
 ```rego
 package cicd.deployment
+
+import rego.v1
 
 environment_approvals := {
     "production": 2,
@@ -562,6 +588,8 @@ Ensures deployments happen during approved time windows.
 
 ```rego
 package cicd.deployment
+
+import rego.v1
 
 # Block deployments during business hours on weekdays
 deny contains "Production deployments not allowed during business hours (9 AM - 5 PM weekdays)" if {
@@ -608,6 +636,8 @@ Ensures container images are scanned for vulnerabilities.
 ```rego
 package cicd.artifact_scanning
 
+import rego.v1
+
 critical_severity_threshold := 0
 high_severity_threshold := 5
 
@@ -638,6 +668,8 @@ Ensures artifacts are properly signed.
 
 ```rego
 package cicd.artifact_signing
+
+import rego.v1
 
 deny contains "Container image must be signed before deployment to production" if {
     input.deployment.environment == "production"
@@ -678,6 +710,8 @@ Ensures code progresses through environments in order.
 
 ```rego
 package cicd.promotion
+
+import rego.v1
 
 environment_order := ["development", "staging", "production"]
 
@@ -721,6 +755,8 @@ Enforces quality gates before production deployment.
 ```rego
 package cicd.promotion
 
+import rego.v1
+
 deny contains "All automated tests must pass before production deployment" if {
     input.deployment.environment == "production"
     not all_tests_passing
@@ -762,6 +798,8 @@ Defines conditions for automatic rollback.
 ```rego
 package cicd.rollback
 
+import rego.v1
+
 require_rollback contains "Error rate exceeds 5% threshold" if {
     error_rate := input.metrics.error_rate_percent
     error_rate > 5.0
@@ -794,6 +832,8 @@ Ensures rollbacks follow proper procedures.
 
 ```rego
 package cicd.rollback
+
+import rego.v1
 
 deny contains "Rollback must include incident ticket reference" if {
     input.action == "rollback"
@@ -828,6 +868,8 @@ Validates Dockerfile security and best practices.
 
 ```rego
 package cicd.dockerfile
+
+import rego.v1
 
 deny contains "Dockerfile must not use latest tag for base images" if {
     some instruction in input.dockerfile.instructions
@@ -878,6 +920,8 @@ Validates GitHub Actions or GitLab CI configuration.
 ```rego
 package cicd.pipeline_config
 
+import rego.v1
+
 deny contains "CI pipeline must include security scanning job" if {
     not has_security_scan_job
 }
@@ -896,7 +940,7 @@ has_security_scan_job if {
 deny contains "CI pipeline must run tests before build" if {
     test_job := get_job_by_name("test")
     build_job := get_job_by_name("build")
-    not build_job.needs[_] == "test"
+    not "test" in build_job.needs
 }
 
 deny contains sprintf("Job '%s' missing required timeout", [job_name]) if {
@@ -920,6 +964,8 @@ Blocks builds with vulnerable dependencies.
 
 ```rego
 package cicd.dependency_scanning
+
+import rego.v1
 
 deny contains sprintf("Found %d critical vulnerabilities in dependencies", [count]) if {
     count := count([v | some v in input.vulnerabilities; v.severity == "critical"])
@@ -959,6 +1005,8 @@ Ensures dependencies are kept up to date.
 ```rego
 package cicd.dependency_scanning
 
+import rego.v1
+
 deny contains sprintf("Dependency '%s' is %d days behind latest version", [dep, days]) if {
     some dependency in input.dependencies
     dep := dependency.name
@@ -993,6 +1041,8 @@ Ensures dependencies use approved licenses.
 
 ```rego
 package cicd.license_compliance
+
+import rego.v1
 
 approved_licenses := {
     "MIT",
@@ -1046,6 +1096,8 @@ Ensures source files contain required license headers.
 ```rego
 package cicd.license_compliance
 
+import rego.v1
+
 required_header := `Copyright (c) 2024 Example Corp. All rights reserved.
 Licensed under the Apache License, Version 2.0`
 
@@ -1080,6 +1132,8 @@ Enforces quality thresholds on code metrics.
 
 ```rego
 package cicd.quality_gates
+
+import rego.v1
 
 deny contains sprintf("Code complexity score %.2f exceeds maximum of 10", [complexity]) if {
     some file in input.quality_metrics.files
@@ -1119,6 +1173,8 @@ Ensures static analysis tools are run and pass.
 ```rego
 package cicd.quality_gates
 
+import rego.v1
+
 deny contains sprintf("Static analysis tool '%s' found %d issues", [tool, count]) if {
     some tool, results in input.static_analysis
     count := count(results.issues)
@@ -1152,6 +1208,8 @@ Validates base images meet security requirements.
 
 ```rego
 package cicd.container_scanning
+
+import rego.v1
 
 approved_base_images := {
     "alpine:3.18",
@@ -1197,6 +1255,8 @@ Validates container security configuration.
 ```rego
 package cicd.container_scanning
 
+import rego.v1
+
 deny contains "Container must not run privileged" if {
     input.container_config.privileged == true
 }
@@ -1233,6 +1293,8 @@ Detects potential secrets in code changes.
 
 ```rego
 package cicd.secrets_detection
+
+import rego.v1
 
 secret_patterns := {
     "aws_key": `AKIA[0-9A-Z]{16}`,
@@ -1284,6 +1346,8 @@ Prevents committing common secret files.
 ```rego
 package cicd.secrets_detection
 
+import rego.v1
+
 forbidden_files := {
     ".env",
     ".env.local",
@@ -1329,6 +1393,8 @@ Detects performance regressions in benchmarks.
 ```rego
 package cicd.performance
 
+import rego.v1
+
 max_regression_percent := 10
 
 deny contains sprintf("Benchmark '%s' regressed by %.2f%%", [name, regression]) if {
@@ -1365,6 +1431,8 @@ Validates load test results meet SLA requirements.
 ```rego
 package cicd.performance
 
+import rego.v1
+
 sla_response_time_ms := 200
 sla_error_rate_percent := 0.1
 
@@ -1400,6 +1468,8 @@ Ensures documentation is updated with code changes.
 
 ```rego
 package cicd.documentation
+
+import rego.v1
 
 significant_change_threshold := 10  # files
 
@@ -1454,6 +1524,8 @@ Validates README contains required sections.
 ```rego
 package cicd.documentation
 
+import rego.v1
+
 required_readme_sections := {
     "Installation",
     "Usage",
@@ -1493,6 +1565,8 @@ Ensures release notes accompany version changes.
 
 ```rego
 package cicd.release_notes
+
+import rego.v1
 
 deny contains "Version bump requires release notes" if {
     version_changed
@@ -1538,6 +1612,8 @@ Validates quality and completeness of release notes.
 
 ```rego
 package cicd.release_notes
+
+import rego.v1
 
 changelog_sections := {"Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"}
 
@@ -1591,6 +1667,8 @@ Ensures feature flags are properly configured.
 ```rego
 package cicd.feature_flags
 
+import rego.v1
+
 deny contains sprintf("Feature flag '%s' missing required metadata", [flag]) if {
     some flag, config in input.feature_flags
     not config.description
@@ -1627,6 +1705,8 @@ Identifies stale feature flags that should be removed.
 
 ```rego
 package cicd.feature_flags
+
+import rego.v1
 
 deny contains sprintf("Feature flag '%s' enabled at 100%% for over 60 days - consider removing", [flag]) if {
     some flag, config in input.feature_flags
@@ -1666,6 +1746,8 @@ Ensures CI/CD jobs have proper dependencies.
 
 ```rego
 package cicd.pipeline_dependencies
+
+import rego.v1
 
 # Test must run before build
 deny contains "Build job must depend on test job" if {
@@ -1730,6 +1812,8 @@ Identifies opportunities for parallel execution.
 
 ```rego
 package cicd.pipeline_dependencies
+
+import rego.v1
 
 warning contains sprintf("Jobs '%s' and '%s' can run in parallel", [job1, job2]) if {
     some job1, config1 in input.pipeline.jobs

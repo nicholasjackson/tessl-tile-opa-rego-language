@@ -9,11 +9,27 @@ This document provides comprehensive examples of Kubernetes admission control po
 Ensures all container images come from approved corporate registries. This is a fundamental security policy that prevents containers from untrusted sources from being deployed in your cluster.
 
 ```rego
+# METADATA
+# title: Image Registry Validation
+# description: Ensures container images come from approved registries
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny untrusted images
+# description: Blocks pods with images from unapproved registries
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
-    image := input.request.object.spec.containers[_].image
+    some container in input.request.object.spec.containers
+    image := container.image
     not startswith(image, "hooli.com/")
     msg := sprintf("image '%v' comes from untrusted registry", [image])
 }
@@ -26,7 +42,16 @@ deny contains msg if {
 Validates container images against a list of approved registries. This extends the basic registry validation to support multiple trusted sources, which is common in enterprise environments.
 
 ```rego
+# METADATA
+# title: Multiple Trusted Registries
+# description: Validates container images against a list of approved registries
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 trusted_registries := {
     "hooli.com/",
@@ -34,6 +59,12 @@ trusted_registries := {
     "registry.k8s.io/",
 }
 
+# METADATA
+# title: Deny untrusted registry images
+# description: Blocks pods with images not from any approved registry
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -55,16 +86,32 @@ image_from_trusted_registry(image) if {
 Restricts ingress hostnames to namespace-specific allowlists using annotations. This prevents teams from creating ingresses for domains they don't own or manage.
 
 ```rego
+# METADATA
+# title: Ingress Hostname Allowlist
+# description: Restricts ingress hostnames to namespace-specific allowlists
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 import data.kubernetes.namespaces
 
 operations := {"CREATE", "UPDATE"}
 
+# METADATA
+# title: Deny invalid ingress hosts
+# description: Blocks ingresses with hostnames not in the namespace allowlist
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     input.request.kind.kind == "Ingress"
     operations[input.request.operation]
-    host := input.request.object.spec.rules[_].host
+    some rule in input.request.object.spec.rules
+    host := rule.host
     not fqdn_matches_any(host, valid_ingress_hosts)
     msg := sprintf("invalid ingress host %q", [host])
 }
@@ -72,11 +119,12 @@ deny contains msg if {
 valid_ingress_hosts := {host |
     allowlist := namespaces[input.request.namespace].metadata.annotations["ingress-allowlist"]
     hosts := split(allowlist, ",")
-    host := hosts[_]
+    some host in hosts
 }
 
 fqdn_matches_any(str, patterns) if {
-    fqdn_matches(str, patterns[_])
+    some pattern in patterns
+    fqdn_matches(str, pattern)
 }
 
 fqdn_matches(str, pattern) if {
@@ -99,18 +147,35 @@ fqdn_matches(str, pattern) if {
 Prevents hostname conflicts across namespaces by checking existing ingresses. This ensures that two ingresses in different namespaces don't inadvertently claim the same hostname, which could cause traffic routing issues.
 
 ```rego
+# METADATA
+# title: Prevent Ingress Hostname Conflicts
+# description: Prevents hostname conflicts across namespaces by checking existing ingresses
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 import data.kubernetes.ingresses
 
+# METADATA
+# title: Deny conflicting ingress hosts
+# description: Blocks ingresses that conflict with hosts in other namespaces
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     some other_ns, other_ingress
     input.request.kind.kind == "Ingress"
     input.request.operation == "CREATE"
-    host := input.request.object.spec.rules[_].host
+    some request_rule in input.request.object.spec.rules
+    host := request_rule.host
     ingress := ingresses[other_ns][other_ingress]
     other_ns != input.request.namespace
-    ingress.spec.rules[_].host == host
+    some ingress_rule in ingress.spec.rules
+    host == ingress_rule.host
     msg := sprintf("invalid ingress host %q (conflicts with %v/%v)", [host, other_ns, other_ingress])
 }
 ```
@@ -122,10 +187,25 @@ deny contains msg if {
 Requires specific labels on Kubernetes Deployments to ensure proper organization, tracking, and billing. Labels like 'app', 'team', and 'environment' are essential for resource management.
 
 ```rego
+# METADATA
+# title: Required Labels
+# description: Requires specific labels on Kubernetes Deployments
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 required_labels := ["app", "team", "environment"]
 
+# METADATA
+# title: Deny deployments missing labels
+# description: Blocks deployments without required organizational labels
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     input.request.kind.kind == "Deployment"
     labels := object.get(input.request.object.metadata, "labels", {})
@@ -142,8 +222,23 @@ deny contains msg if {
 Enforces that all containers run as non-root users. This is a critical security practice that reduces the attack surface if a container is compromised.
 
 ```rego
+# METADATA
+# title: Run As Non-Root
+# description: Enforces that all containers run as non-root users
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny root containers
+# description: Blocks pods with containers not configured to run as non-root
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -167,8 +262,23 @@ is_run_as_non_root(container) if {
 Enforces read-only root filesystems on containers. This prevents containers from modifying their filesystem at runtime, making it harder for attackers to persist changes.
 
 ```rego
+# METADATA
+# title: Read-Only Root Filesystem
+# description: Enforces read-only root filesystems on containers
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny writable root filesystem
+# description: Blocks pods with containers that lack read-only root filesystems
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -184,8 +294,23 @@ deny contains msg if {
 Blocks the creation of privileged containers. Privileged containers have access to all host devices and can bypass many security controls, so they should only be used when absolutely necessary.
 
 ```rego
+# METADATA
+# title: Prevent Privileged Containers
+# description: Blocks the creation of privileged containers
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny privileged containers
+# description: Blocks pods that run containers in privileged mode
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -201,7 +326,16 @@ deny contains msg if {
 Restricts which Linux capabilities containers can add. This follows the principle of least privilege by limiting the system capabilities available to containers.
 
 ```rego
+# METADATA
+# title: Linux Capabilities Restrictions
+# description: Restricts which Linux capabilities containers can add
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 allowed_capabilities := {
     "NET_BIND_SERVICE",
@@ -210,6 +344,12 @@ allowed_capabilities := {
     "SETUID",
 }
 
+# METADATA
+# title: Deny disallowed capabilities
+# description: Blocks pods adding Linux capabilities outside the approved set
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -235,8 +375,23 @@ deny contains msg if {
 Ensures all containers have CPU and memory limits defined. This prevents resource exhaustion and enables proper capacity planning for the cluster.
 
 ```rego
+# METADATA
+# title: Resource Limits Required
+# description: Ensures all containers have CPU and memory limits defined
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny missing resource limits
+# description: Blocks pods with containers lacking CPU or memory limits
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -259,11 +414,26 @@ deny contains msg if {
 Validates that resource requests don't exceed maximum allowed values. This prevents individual workloads from consuming excessive cluster resources.
 
 ```rego
+# METADATA
+# title: Resource Quota Validation
+# description: Validates that resource requests do not exceed maximum allowed values
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 max_cpu := "4000m"
 max_memory := "8Gi"
 
+# METADATA
+# title: Deny excessive resource requests
+# description: Blocks pods requesting more resources than allowed maximums
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -288,8 +458,23 @@ deny contains msg if {
 Enforces namespace isolation by requiring specific labels and annotations. This ensures workloads are properly categorized and isolated according to organizational policies.
 
 ```rego
+# METADATA
+# title: Namespace Isolation with Labels
+# description: Enforces namespace isolation by requiring specific labels
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny namespaces without required labels
+# description: Blocks namespace creation without proper environment labels
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     input.request.kind.kind == "Namespace"
     input.request.operation == "CREATE"
@@ -315,8 +500,23 @@ deny contains msg if {
 Prevents pods from using the default service account and requires explicit service account assignment. This improves security by ensuring pods have properly scoped permissions.
 
 ```rego
+# METADATA
+# title: Service Account Restrictions
+# description: Prevents pods from using the default service account
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny default service account
+# description: Blocks pods using the default service account
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     sa := object.get(input.request.object.spec, "serviceAccountName", "default")
@@ -338,8 +538,23 @@ deny contains msg if {
 Validates that ConfigMaps and Secrets have required metadata and proper naming conventions. This ensures consistency and prevents accidental data leakage.
 
 ```rego
+# METADATA
+# title: ConfigMap and Secret Validation
+# description: Validates ConfigMaps and Secrets have proper naming and metadata
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny invalid resource names
+# description: Blocks ConfigMaps and Secrets with invalid naming conventions
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     input.request.kind.kind in {"ConfigMap", "Secret"}
     input.request.operation in {"CREATE", "UPDATE"}
@@ -368,10 +583,25 @@ deny contains msg if {
 Requires NetworkPolicies to be defined for namespaces and validates their configuration. This ensures that network segmentation is properly implemented.
 
 ```rego
+# METADATA
+# title: NetworkPolicy Enforcement
+# description: Requires NetworkPolicies for namespaces and validates their configuration
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 import data.kubernetes.networkpolicies
 
+# METADATA
+# title: Deny pods without network policy
+# description: Blocks pod creation in namespaces lacking a NetworkPolicy
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     input.request.operation == "CREATE"
@@ -400,7 +630,16 @@ deny contains msg if {
 Restricts which host paths can be mounted into containers. This prevents containers from accessing sensitive host directories.
 
 ```rego
+# METADATA
+# title: Volume Mount Restrictions
+# description: Restricts which host paths can be mounted into containers
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 forbidden_paths := {
     "/",
@@ -413,6 +652,12 @@ forbidden_paths := {
     "/usr",
 }
 
+# METADATA
+# title: Deny forbidden host paths
+# description: Blocks pods mounting sensitive host directories
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some volume in input.request.object.spec.volumes
@@ -434,7 +679,16 @@ is_forbidden_path(path) if {
 Validates environment variables to prevent hardcoded secrets and enforce naming conventions. This promotes security best practices and consistency.
 
 ```rego
+# METADATA
+# title: Environment Variable Validation
+# description: Validates environment variables to prevent hardcoded secrets
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 sensitive_patterns := [
     "password",
@@ -444,6 +698,12 @@ sensitive_patterns := [
     "credential",
 ]
 
+# METADATA
+# title: Deny hardcoded sensitive env vars
+# description: Blocks pods with hardcoded secrets in environment variables
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     some container in input.request.object.spec.containers
@@ -474,8 +734,23 @@ is_valid_env_name(name) if {
 Comprehensive pod security validation combining multiple security standards. While PodSecurityPolicy is deprecated, these patterns remain useful for validating pod security configurations.
 
 ```rego
+# METADATA
+# title: PodSecurityPolicy Patterns
+# description: Comprehensive pod security validation combining multiple security standards
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny insecure pods
+# description: Blocks pods that do not comply with baseline security standards
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "Pod"
     not complies_with_baseline_security(input.request.object)
@@ -522,8 +797,23 @@ pod_spec_is_secure(spec) if {
 Validates webhook configurations and ensures proper security settings. This helps maintain a secure admission control infrastructure.
 
 ```rego
+# METADATA
+# title: Admission Webhook Integration
+# description: Validates webhook configurations and ensures proper security settings
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
 
+import rego.v1
+
+# METADATA
+# title: Deny insecure webhooks
+# description: Blocks webhook configurations missing CA bundles when using URLs
+# entrypoint: true
+# custom:
+#   severity: HIGH
 deny contains msg if {
     input.request.kind.kind == "ValidatingWebhookConfiguration"
     some webhook in input.request.object.webhooks
@@ -554,13 +844,28 @@ is_critical_webhook(name) if {
 A complete validation policy that checks multiple resource types and enforces organization-wide standards. This demonstrates how to build comprehensive admission control policies.
 
 ```rego
+# METADATA
+# title: Comprehensive Multi-Resource Validation
+# description: Validates multiple resource types and enforces organization-wide standards
+# authors:
+# - Platform Security Team <platform-security@example.com>
+# custom:
+#   category: kubernetes-admission
 package kubernetes.admission
+
+import rego.v1
 
 import data.kubernetes.namespaces
 
 operations := {"CREATE", "UPDATE"}
 
 # Validate all resources have required labels
+# METADATA
+# title: Deny resources missing required labels
+# description: Blocks workload resources without required organizational labels
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 deny contains msg if {
     operations[input.request.operation]
     resource_types := {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
@@ -613,7 +918,7 @@ min_replicas_for_env := {
 deny contains msg if {
     operations[input.request.operation]
     input.request.kind.kind in {"Pod", "Deployment", "StatefulSet", "DaemonSet"}
-    container := get_containers[_]
+    some container in get_containers
     image := container.image
     endswith(image, ":latest")
     msg := sprintf("container %v uses :latest tag which is not allowed", [container.name])
