@@ -1,0 +1,28 @@
+openapi: 3.0.0
+info:
+  title: Finance API
+  version: 1.0.0
+
+paths:
+  /finance/salary/{username}:
+    get:
+      summary: Get salary record
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT payload claims:
+          - sub: authenticated user's username (matches the {username} path parameter)
+          - subordinates: list of usernames this user manages

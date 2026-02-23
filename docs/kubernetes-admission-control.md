@@ -937,6 +937,70 @@ get_containers := containers if {
 
 ---
 
+## OPA Gatekeeper
+
+OPA Gatekeeper is the recommended way to use OPA with Kubernetes in production. Instead of deploying OPA directly as an admission webhook (kube-mgmt style), Gatekeeper introduces two Kubernetes CRDs:
+
+- **ConstraintTemplate** — defines the Rego policy and the schema for its parameters
+- **Constraint** — an instance of a ConstraintTemplate with specific parameter values
+
+The Rego policy lives inside the ConstraintTemplate. Its structure differs from the kube-mgmt pattern in three key ways:
+
+| | kube-mgmt | Gatekeeper |
+|---|---|---|
+| Package | `kubernetes.admission` | named after the template, e.g. `k8srequiredlabels` |
+| Rule | `deny contains msg if` | `violation[{"msg": msg}]` |
+| Input object | `input.request.object` | `input.review.object` |
+| Parameters | n/a | `input.parameters` |
+
+### Example: Required Labels (ConstraintTemplate Rego)
+
+```rego
+package k8srequiredlabels
+
+import rego.v1
+
+violation contains {"msg": msg} if {
+    provided := {label | input.review.object.metadata.labels[label]}
+    required := {label | label := input.parameters.labels[_]}
+    missing := required - provided
+    count(missing) > 0
+    msg := sprintf("required labels are missing: %v", [missing])
+}
+```
+
+The matching Constraint would specify which resources to check and what labels to require:
+
+```yaml
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata:
+  name: require-team-label
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment"]
+  parameters:
+    labels: ["team"]
+```
+
+### Example: Block Privileged Containers (ConstraintTemplate Rego)
+
+```rego
+package k8snoprivileged
+
+import rego.v1
+
+violation contains {"msg": msg} if {
+    some container in input.review.object.spec.containers
+    container.securityContext.privileged == true
+    msg := sprintf("container %v must not run as privileged", [container.name])
+}
+```
+
+---
+
 ## Summary
 
 This document provides 20 comprehensive examples covering:

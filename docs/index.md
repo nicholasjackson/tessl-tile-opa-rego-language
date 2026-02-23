@@ -134,7 +134,7 @@ total_cost_by_team[team] := total if {
 
 ## Capabilities
 
-This Knowledge Tile covers eight major themes for using Rego in production environments. Each theme includes detailed examples, best practices, and real-world use cases.
+This Knowledge Tile covers five major themes for using Rego in production environments. Each theme includes detailed examples, best practices, and real-world use cases.
 
 ---
 
@@ -209,9 +209,9 @@ deny contains msg if {
 
 ### 2. Container & Docker Security
 
-Control Docker daemon operations and enforce security policies on container configurations.
+Use OPA as a Docker daemon authorization plugin (`opa-docker-authz`) to intercept and enforce security policies on every Docker API call before it executes.
 
-**Use Cases:** Privileged container prevention, volume mount restrictions, seccomp profile enforcement, user-based access control.
+**Use Cases:** Privileged container prevention, seccomp profile enforcement, sensitive bind mount blocking, user-based read-only access control.
 
 **Example: Seccomp Profile Enforcement**
 
@@ -553,262 +553,7 @@ is_business_hours if {
 
 ---
 
-### 6. CI/CD Pipeline Policies
-
-Automate validation and enforce quality standards in continuous integration and deployment pipelines.
-
-**Use Cases:** File validation, change detection, test coverage requirements, security scanning, compliance checks.
-
-**Example: File Validation Policy**
-
-Validates configuration file syntax in CI/CD pipelines:
-
-```rego
-package files
-import rego.v1
-
-# METADATA
-# entrypoint: true
-
-deny contains sprintf("%s is an invalid YAML file: %s", [filename, content]) if {
-    some filename, content in yaml_file_contents
-    changes[filename].status in {"added", "modified"}
-    not yaml.is_valid(content)
-}
-
-deny contains sprintf("%s is an invalid JSON file: %s", [filename, content]) if {
-    some filename, content in json_file_contents
-    changes[filename].status in {"added", "modified"}
-    not json.is_valid(content)
-}
-
-yaml_file_contents[filename] := file_in_pr(filename) if {
-    some filename in filenames
-    extension(filename) in {"yml", "yaml"}
-}
-
-json_file_contents[filename] := file_in_pr(filename) if {
-    some filename in filenames
-    extension(filename) == "json"
-}
-
-extension(filename) := ext if {
-    parts := split(filename, ".")
-    ext := parts[count(parts) - 1]
-}
-```
-
-**Example: PR Change Detection**
-
-Determines which tests to run based on changed files:
-
-```rego
-package policy["pr-check"]
-import rego.v1
-
-go_change_prefixes := [
-    "build/",
-    "capabilities/",
-    "internal/",
-]
-
-changes["docs"] if {
-    some changed_file in input
-    startswith(changed_file.filename, "docs/")
-}
-
-changes["go"] if {
-    some changed_file in input
-    some prefix in go_change_prefixes
-    startswith(changed_file.filename, prefix)
-}
-
-changes["wasm"] if {
-    some changed_file in input
-    startswith(changed_file.filename, "wasm/")
-}
-```
-
-**Example: Test Coverage Requirements**
-
-Enforces minimum test coverage thresholds:
-
-```rego
-package cicd.coverage
-import rego.v1
-
-minimum_coverage := 80
-
-deny contains msg if {
-    coverage := input.test_results.coverage_percent
-    coverage < minimum_coverage
-    msg := sprintf("Test coverage %v%% is below minimum %v%%", [coverage, minimum_coverage])
-}
-```
-
-[View detailed CI/CD pipeline policy examples →](cicd-pipeline-policies.md)
-
----
-
-### 7. Data Validation & Transformation
-
-Validate input data, perform transformations, and implement content moderation policies.
-
-**Use Cases:** Input validation, email validation, content filtering, data aggregation, object filtering, structured error responses.
-
-**Example: Comprehensive Input Validation**
-
-Validate multiple aspects of input:
-
-```rego
-package validation
-import rego.v1
-
-errors contains msg if {
-    not input.username
-    msg := "username is required"
-}
-
-errors contains msg if {
-    count(input.username) < 3
-    msg := "username must be at least 3 characters"
-}
-
-errors contains msg if {
-    not input.email
-    msg := "email is required"
-}
-
-errors contains msg if {
-    not contains(input.email, "@")
-    msg := "email must be valid"
-}
-
-valid if {
-    count(errors) == 0
-}
-```
-
-**Example: Email Validation**
-
-Simple email format validation:
-
-```rego
-package content.validation
-import rego.v1
-
-valid_email if {
-    contains(input.email, "@")
-    parts := split(input.email, "@")
-    count(parts) == 2
-    parts[0] != ""
-    parts[1] != ""
-}
-```
-
-**Example: Data Aggregation**
-
-Aggregate data from multiple sources:
-
-```rego
-package transform
-import rego.v1
-
-total_cost_by_team[team] := total if {
-    some team
-    resources := [r | some r in input.resources; r.team == team]
-    costs := [r.cost | some r in resources]
-    total := sum(costs)
-}
-
-resource_count_by_type[resource_type] := count(resources) if {
-    some resource_type
-    resources := [r | some r in input.resources; r.type == resource_type]
-}
-```
-
-[View detailed data validation and transformation examples →](data-validation-transformation.md)
-
----
-
-### 8. Network & Compliance Policies
-
-Enforce network security policies and regulatory compliance requirements.
-
-**Use Cases:** CIDR range validation, egress traffic control, PCI-DSS compliance, data residency, network segmentation.
-
-**Example: CIDR Range Validation**
-
-Validates IP addresses against allowed CIDR ranges:
-
-```rego
-package network.policies
-import rego.v1
-
-allowed_cidrs := ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-
-deny contains msg if {
-    ip := input.source_ip
-    not is_allowed_ip(ip)
-    msg := sprintf("IP address %v is not in allowed CIDR ranges", [ip])
-}
-
-is_allowed_ip(ip) if {
-    some cidr in allowed_cidrs
-    net.cidr_contains(cidr, ip)
-}
-```
-
-**Example: Egress Traffic Control**
-
-Controls which external services can be accessed:
-
-```rego
-package network.egress
-import rego.v1
-
-allowed_domains := {"api.github.com", "registry.npmjs.org", "*.amazonaws.com"}
-
-deny contains msg if {
-    host := input.request.host
-    not is_allowed_host(host)
-    msg := sprintf("Egress to %v is not allowed", [host])
-}
-
-is_allowed_host(host) if {
-    some pattern in allowed_domains
-    glob.match(pattern, ["."], host)
-}
-```
-
-**Example: PCI-DSS Compliance Check**
-
-Validates resources against PCI-DSS requirements:
-
-```rego
-package compliance.pci
-import rego.v1
-
-deny contains msg if {
-    some resource in input.resources
-    resource.type == "database"
-    not resource.encrypted
-    msg := sprintf("Database %v must be encrypted for PCI-DSS compliance", [resource.id])
-}
-
-deny contains msg if {
-    some resource in input.resources
-    resource.type == "database"
-    not resource.audit_logging_enabled
-    msg := sprintf("Database %v must have audit logging for PCI-DSS compliance", [resource.id])
-}
-```
-
-[View detailed network and compliance policy examples →](network-compliance-policies.md)
-
----
-
-### 9. Metadata Annotations
+### 6. Metadata Annotations
 
 Document and categorize policies using OPA's built-in metadata annotation system for governance, discovery, and type safety.
 
@@ -890,7 +635,7 @@ violations contains violation if {
 
 ---
 
-## 10. Policy Testing
+## 7. Policy Testing
 
 OPA provides first-class support for testing policies. Tests are standard Rego rules prefixed with `test_` and run with the `opa test` command.
 

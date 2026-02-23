@@ -1,0 +1,41 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent writes a correct Docker daemon authorization policy in Rego following the official OPA docker.authz pattern: default deny, allow-if-not-deny, with specific deny rules for privileged mode and unconfined seccomp.",
+  "checklist": [
+    {
+      "name": "package docker.authz",
+      "description": "The policy uses `package docker.authz` (the canonical package for OPA Docker authorization plugins)",
+      "max_score": 10
+    },
+    {
+      "name": "import rego.v1",
+      "description": "The policy file includes `import rego.v1`",
+      "max_score": 10
+    },
+    {
+      "name": "default allow := false",
+      "description": "The policy defaults to denying all requests with `default allow := false`",
+      "max_score": 10
+    },
+    {
+      "name": "allow if not deny pattern",
+      "description": "The `allow` rule is expressed as `allow if { not deny }` rather than duplicating positive conditions",
+      "max_score": 15
+    },
+    {
+      "name": "deny rule for privileged containers",
+      "description": "A `deny` rule triggers when `input.Body.HostConfig.Privileged == true`",
+      "max_score": 20
+    },
+    {
+      "name": "deny rule for unconfined seccomp",
+      "description": "A `deny` rule triggers when `\"seccomp:unconfined\"` is present in `input.Body.HostConfig.SecurityOpt`",
+      "max_score": 20
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 15
+    }
+  ]
+}

@@ -15,6 +15,8 @@ Infrastructure as Code validation with OPA enables:
 
 ## IMPORTANT: Testing IaC Policies
 
+**Do not assume you know the field structure of a Terraform resource.** Provider schemas change across versions and vary between providers. Before writing a policy for a specific resource type, always fetch the current resource documentation from the [Terraform Registry](https://registry.terraform.io/) to confirm the exact attribute names and their types as they appear in the plan JSON (`change.after`). For example, an `aws_security_group` resource documents its `ingress` block attributes at `registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group`.
+
 **Never run `terraform plan` or `terraform apply` to test policies.** Rego policies MUST be tested exclusively using `opa test`. Do NOT run `terraform plan`, `terraform apply`, or any Terraform commands to validate policy logic. Terraform operations are slow, require real infrastructure configuration, and do not provide the fine-grained test coverage that `opa test` offers. If you need to test a policy against a Terraform plan, create a mock plan JSON input in your `_test.rego` file and use the `with` keyword to inject it.
 
 **Always check both `create` and `update` actions.** When writing policies that validate resource configuration (e.g., encryption, tags, security settings), always check for both `"create"` and `"update"` actions. A resource that passes validation at creation time can later be modified to a non-compliant state. Use the pattern: `some action in r.change.actions; action in {"create", "update"}`. Only omit `"update"` when the policy is specifically about initial resource creation (e.g., naming conventions that cannot change after creation).

@@ -1,0 +1,36 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent produces a Rego policy with complete OPA metadata annotations at both package and rule level, including title, description, authors, entrypoint markers, and custom fields.",
+  "checklist": [
+    {
+      "name": "package has METADATA block with title and description",
+      "description": "The package declaration is preceded by a `# METADATA` comment block containing both `title:` and `description:` fields",
+      "max_score": 20
+    },
+    {
+      "name": "package has authors or organizations",
+      "description": "The package-level `# METADATA` block includes an `authors:` or `organizations:` field",
+      "max_score": 15
+    },
+    {
+      "name": "decision rules have METADATA with title and description",
+      "description": "Each decision rule (deny, violation, etc.) is preceded by a `# METADATA` block with `title:` and `description:` fields",
+      "max_score": 20
+    },
+    {
+      "name": "decision rules have entrypoint: true",
+      "description": "Each decision rule's `# METADATA` block includes `entrypoint: true`",
+      "max_score": 25
+    },
+    {
+      "name": "rules have custom fields",
+      "description": "Rule-level metadata includes a `custom:` block with at least a `severity:` field",
+      "max_score": 10
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 10
+    }
+  ]
+}

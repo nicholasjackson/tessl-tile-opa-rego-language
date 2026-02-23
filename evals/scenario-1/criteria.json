@@ -1,0 +1,41 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements a correct RBAC policy in Rego that reads user roles from JWT claims in the input, reads role grants from external data, iterates through the role-grant chain, and correctly matches action and resource_type from the input.",
+  "checklist": [
+    {
+      "name": "import rego.v1",
+      "description": "The policy file includes `import rego.v1`",
+      "max_score": 10
+    },
+    {
+      "name": "default allow := false",
+      "description": "The policy defaults to denying all requests with `default allow := false`",
+      "max_score": 15
+    },
+    {
+      "name": "Reads roles from JWT claims",
+      "description": "The policy reads the user's roles from `input.token.roles` (JWT claims) rather than from a data document or hardcoded values",
+      "max_score": 15
+    },
+    {
+      "name": "Reads role grants from data",
+      "description": "The policy reads grant assignments from an external data document (e.g. `data.role_grants` or `data.role_permissions`) rather than hardcoding them",
+      "max_score": 15
+    },
+    {
+      "name": "Nested iteration with some",
+      "description": "The allow rule iterates over the user's roles and then over each role's grants using `some` (or equivalent), handling users with multiple roles",
+      "max_score": 20
+    },
+    {
+      "name": "Permission match on action and resource_type",
+      "description": "The allow rule checks that a grant matches both `input.action` and `input.resource_type`",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 10
+    }
+  ]
+}

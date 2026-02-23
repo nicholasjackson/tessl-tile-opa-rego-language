@@ -55,6 +55,8 @@ deny contains msg if {
 
 Mark decision rules with `entrypoint: true` so that OPA's CLI and tooling can automatically discover which rules are intended for external consumption. Helper rules should not be marked as entrypoints.
 
+**`entrypoint: true` is required for governance tooling.** When you run `opa inspect -a` or use `opa build`, OPA uses this flag to distinguish the policy's public API (the rules your system queries) from internal helper rules. Without `entrypoint: true`, a rule's metadata will appear in `opa inspect` output but tooling cannot identify it as a decision rule vs. a utility function. Every decision rule that external systems call must be marked `entrypoint: true`.
+
 ```rego
 # METADATA
 # title: Terraform Security Policy
@@ -108,8 +110,8 @@ instance_costs := {
 ```
 
 **Key Points:**
-- Setting `entrypoint: true` allows `opa eval` and `opa build` to auto-discover the rule
-- Helper rules (`instance_costs`) should **not** have `entrypoint: true`
+- **Every decision rule that external systems query must have `entrypoint: true`** — this is what makes it discoverable by `opa inspect -a`, `opa build`, and governance tooling
+- Helper rules (`instance_costs`) must **not** have `entrypoint: true`
 - Multiple entrypoint rules can exist in the same package
 - The `entrypoint` flag implies `scope: document` unless explicitly overridden
 
