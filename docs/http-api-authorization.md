@@ -21,7 +21,16 @@ HTTP API authorization policies typically evaluate requests based on:
 **Description**: Implements context-aware authorization based on organizational hierarchy, allowing users to access their own resources and managers to access their subordinates' resources.
 
 ```rego
+# METADATA
+# title: Hierarchical Authorization
+# description: Context-aware authorization based on organizational hierarchy
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 # Define organizational hierarchy
 subordinates := {
@@ -33,6 +42,12 @@ subordinates := {
 
 default allow := false
 
+# METADATA
+# title: Allow authorized requests
+# description: Permits requests based on hierarchical manager-subordinate relationships
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow users to get their own salaries
 allow if {
     input.method == "GET"
@@ -44,7 +59,7 @@ allow if {
     some username
     input.method == "GET"
     input.path = ["finance", "salary", username]
-    subordinates[input.user][_] == username
+    username in subordinates[input.user]
 }
 ```
 
@@ -66,10 +81,25 @@ allow if {
 **Description**: Validates JWT tokens and extracts claims to make authorization decisions, ensuring tokens are issued to the correct user.
 
 ```rego
+# METADATA
+# title: JWT-Based Access Control
+# description: Validates JWT tokens and extracts claims for authorization decisions
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow JWT-authenticated requests
+# description: Permits requests when JWT token claims match authorization requirements
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow users to get their own salaries
 allow if {
     some username
@@ -84,7 +114,7 @@ allow if {
     some username
     input.method == "GET"
     input.path = ["finance", "salary", username]
-    token.payload.subordinates[_] == username
+    username in token.payload.subordinates
     user_owns_token
 }
 
@@ -126,28 +156,43 @@ token := {"payload": payload} if {
 **Description**: Restricts HTTP methods based on user permissions, implementing a standard read/write/admin permission model.
 
 ```rego
+# METADATA
+# title: Method-Based Permissions
+# description: Restricts HTTP methods based on user read/write/admin permissions
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 import data.users
 
 default allow := false
 
+# METADATA
+# title: Allow method-based access
+# description: Permits requests when user has the required permission for the HTTP method
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow GET requests for users with read permission
 allow if {
     input.method == "GET"
-    users[input.user].permissions[_] == "read"
+    "read" in users[input.user].permissions
 }
 
 # Allow POST, PUT, PATCH for users with write permission
 allow if {
     input.method in {"POST", "PUT", "PATCH"}
-    users[input.user].permissions[_] == "write"
+    "write" in users[input.user].permissions
 }
 
 # Allow DELETE for users with admin permission
 allow if {
     input.method == "DELETE"
-    users[input.user].permissions[_] == "admin"
+    "admin" in users[input.user].permissions
 }
 ```
 
@@ -177,12 +222,27 @@ allow if {
 **Description**: Controls access based on API path patterns using glob matching, allowing administrators to define flexible access rules.
 
 ```rego
+# METADATA
+# title: Path-Based Authorization
+# description: Controls access based on API path patterns using glob matching
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 import data.api_permissions
 
 default allow := false
 
+# METADATA
+# title: Allow path-matched requests
+# description: Permits requests when the user has a matching path pattern permission
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Check if user has permission for the requested path
 allow if {
     some pattern in api_permissions[input.user]
@@ -216,10 +276,25 @@ allow if {
 **Description**: Validates OAuth2 access tokens by checking scopes, expiration, and issuer claims.
 
 ```rego
+# METADATA
+# title: OAuth2 Token Validation
+# description: Validates OAuth2 access tokens by checking scopes, expiration, and issuer
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow OAuth2-authenticated requests
+# description: Permits requests when the OAuth2 token is valid and has the required scope
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow access if token has required scope and is valid
 allow if {
     token_valid
@@ -235,7 +310,7 @@ token_valid if {
 # Check if token has required scope for the endpoint
 has_required_scope if {
     required_scope := endpoint_scopes[concat("/", input.path)]
-    token.payload.scope[_] == required_scope
+    required_scope in token.payload.scope
 }
 
 # Map endpoints to required OAuth2 scopes
@@ -268,10 +343,25 @@ token := {"payload": payload} if {
 **Description**: Integrates with OpenID Connect providers by validating ID tokens and extracting user profile information.
 
 ```rego
+# METADATA
+# title: OpenID Connect Integration
+# description: Integrates with OIDC providers by validating ID tokens and user profiles
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow OIDC-authenticated requests
+# description: Permits requests when the OIDC ID token is valid and user domain is allowed
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow access if OIDC token is valid
 allow if {
     oidc_token_valid
@@ -324,12 +414,27 @@ token := {"payload": payload} if {
 **Description**: Validates API keys and enforces key-specific permissions and rate limits.
 
 ```rego
+# METADATA
+# title: API Key Authentication
+# description: Validates API keys and enforces key-specific permissions and rate limits
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 import data.api_keys
 
 default allow := false
 
+# METADATA
+# title: Allow API key-authenticated requests
+# description: Permits requests when the API key is valid and has matching path permission
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow access if API key is valid and has permission
 allow if {
     api_key_valid
@@ -347,7 +452,8 @@ api_key_valid if {
 api_key_has_permission if {
     key := api_keys[input.api_key]
     endpoint := concat("/", input.path)
-    glob.match(key.allowed_paths[_], ["/"], endpoint)
+    some path in key.allowed_paths
+    glob.match(path, ["/"], endpoint)
 }
 ```
 
@@ -386,12 +492,27 @@ api_key_has_permission if {
 **Description**: Enforces rate limits based on user identity or IP address to prevent abuse.
 
 ```rego
+# METADATA
+# title: Rate Limiting Policies
+# description: Enforces rate limits based on user identity or IP address to prevent abuse
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 import data.rate_limits
 
 default allow := false
 
+# METADATA
+# title: Allow rate-limited requests
+# description: Permits requests when the user and IP are within their rate limits
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow access if within rate limit
 allow if {
     not rate_limit_exceeded
@@ -452,10 +573,25 @@ ip_rate_limit := 50
 **Description**: Enforces different authorization rules based on API version, allowing gradual migration and deprecation.
 
 ```rego
+# METADATA
+# title: API Versioning Policies
+# description: Enforces different authorization rules based on API version
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow version-appropriate requests
+# description: Permits requests based on API version-specific authentication requirements
+# entrypoint: true
+# custom:
+#   severity: LOW
 # API v1 - Legacy, requires basic auth
 allow if {
     input.path[0] == "api"
@@ -519,10 +655,25 @@ has_required_scope_v3 if {
 **Description**: Enforces Cross-Origin Resource Sharing (CORS) policies by validating origin headers.
 
 ```rego
+# METADATA
+# title: CORS Policy Enforcement
+# description: Enforces Cross-Origin Resource Sharing policies by validating origin headers
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow CORS-compliant requests
+# description: Permits requests from same-origin or allowed cross-origin sources
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow same-origin requests
 allow if {
     input.method in {"GET", "POST", "PUT", "DELETE"}
@@ -578,10 +729,25 @@ deny contains "CORS credentials not allowed" if {
 **Description**: Validates request body structure and content before allowing API access.
 
 ```rego
+# METADATA
+# title: Request Body Validation
+# description: Validates request body structure and content before allowing API access
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow requests with valid body
+# description: Permits requests when the request body passes structural and content validation
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow POST requests with valid body
 allow if {
     input.method == "POST"
@@ -648,10 +814,25 @@ valid_user_update_body if {
 **Description**: Filters response data based on user permissions, removing sensitive fields.
 
 ```rego
+# METADATA
+# title: Response Filtering
+# description: Filters response data based on user permissions, removing sensitive fields
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 import data.users
 
+# METADATA
+# title: Allowed response fields
+# description: Determines which fields can be included in the response based on user role
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Determine which fields can be included in response
 allowed_response_fields contains field if {
     input.method == "GET"
@@ -714,12 +895,27 @@ filtered_response := {field: value |
 **Description**: Enforces tenant isolation to prevent cross-tenant data access in SaaS applications.
 
 ```rego
+# METADATA
+# title: Tenant Isolation
+# description: Enforces tenant isolation to prevent cross-tenant data access in SaaS applications
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 import data.tenants
 
 default allow := false
 
+# METADATA
+# title: Allow tenant-scoped requests
+# description: Permits requests when the user belongs to the requested tenant
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow access if user belongs to the tenant
 allow if {
     user_tenant_id := user_tenant[input.user]
@@ -778,10 +974,25 @@ platform_admins := {"platform_admin", "support_admin"}
 **Description**: Restricts API access to specific time windows, such as business hours or maintenance windows.
 
 ```rego
+# METADATA
+# title: Time-Window Based Access
+# description: Restricts API access to specific time windows such as business hours
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow time-restricted requests
+# description: Permits requests during business hours and outside maintenance windows
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow access during business hours
 allow if {
     is_business_hours
@@ -831,10 +1042,25 @@ admins := {"admin", "ops_team"}
 **Description**: Controls API access based on source IP addresses using allowlists and denylists.
 
 ```rego
+# METADATA
+# title: IP Allowlist/Denylist
+# description: Controls API access based on source IP addresses using allowlists and denylists
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow IP-validated requests
+# description: Permits requests from allowlisted IPs that are not on the denylist
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Allow if IP is in allowlist and not in denylist
 allow if {
     ip_allowed
@@ -895,10 +1121,25 @@ partner_ips := {
 **Description**: Restricts API access based on User-Agent headers to prevent scraping or enforce client requirements.
 
 ```rego
+# METADATA
+# title: User Agent Restrictions
+# description: Restricts API access based on User-Agent headers to prevent scraping
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow approved user agent requests
+# description: Permits requests from approved user agents and client applications
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow requests from approved user agents
 allow if {
     user_agent := input.headers["user-agent"]
@@ -962,10 +1203,25 @@ blocked_patterns := {
 **Description**: Validates that requests have appropriate Content-Type headers for the endpoint.
 
 ```rego
+# METADATA
+# title: Content-Type Validation
+# description: Validates that requests have appropriate Content-Type headers for the endpoint
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow content-type validated requests
+# description: Permits requests with correct Content-Type headers for the target endpoint
+# entrypoint: true
+# custom:
+#   severity: LOW
 # Allow GET requests (no content-type required)
 allow if {
     input.method == "GET"
@@ -1026,10 +1282,25 @@ dangerous_content_types := {
 **Description**: Validates query parameters to prevent injection attacks and enforce business rules.
 
 ```rego
+# METADATA
+# title: Query Parameter Validation
+# description: Validates query parameters to prevent injection attacks and enforce business rules
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow parameter-validated requests
+# description: Permits requests with valid query parameters and no injection risk
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow requests with valid query parameters
 allow if {
     valid_query_params
@@ -1104,10 +1375,25 @@ injection_patterns := {
 **Description**: Enforces required HTTP headers for security and tracking purposes.
 
 ```rego
+# METADATA
+# title: HTTP Header Requirements
+# description: Enforces required HTTP headers for security and tracking purposes
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow header-validated requests
+# description: Permits requests that include all required headers with valid values
+# entrypoint: true
+# custom:
+#   severity: MEDIUM
 # Allow requests with all required headers
 allow if {
     has_required_headers
@@ -1177,10 +1463,25 @@ security_headers := {
 **Description**: Combines multiple authorization factors including user identity, JWT validation, role permissions, IP restrictions, and time constraints.
 
 ```rego
+# METADATA
+# title: Comprehensive Multi-Factor Authorization
+# description: Combines multiple authorization factors including identity, JWT, roles, IP, and time
+# authors:
+# - API Security Team <api-security@example.com>
+# custom:
+#   category: http-authorization
 package httpapi.authz
+
+import rego.v1
 
 default allow := false
 
+# METADATA
+# title: Allow multi-factor authorized requests
+# description: Permits requests that pass authentication, authorization, and blocking checks
+# entrypoint: true
+# custom:
+#   severity: HIGH
 # Main authorization decision combining multiple factors
 allow if {
     authenticated
@@ -1221,7 +1522,7 @@ authorized if {
 has_required_role if {
     [_, payload, _] := io.jwt.decode(input.token)
     required_role := endpoint_roles[concat("/", input.path)]
-    payload.roles[_] == required_role
+    required_role in payload.roles
 }
 
 has_path_permission if {

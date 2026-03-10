@@ -34,6 +34,8 @@ The most fundamental access control pattern: users are assigned roles, and roles
 ```rego
 package rbac.authz
 
+import rego.v1
+
 # user-role assignments
 user_roles := {
     "alice": ["engineering", "webdev"],
@@ -61,11 +63,11 @@ allow if {
     # lookup the list of roles for the user
     roles := user_roles[input.user]
     # for each role in that list
-    r := roles[_]
+    some r in roles
     # lookup the permissions list for role r
     permissions := role_permissions[r]
     # for each permission
-    p := permissions[_]
+    some p in permissions
     # check if the permission granted to r matches the user's request
     p == {"action": input.action, "object": input.object}
 }
@@ -91,6 +93,8 @@ Prevents users from being assigned conflicting roles simultaneously to enforce c
 ```rego
 package rbac.sod
 
+import rego.v1
+
 # user-role assignments
 user_roles := {
     "alice": ["create-payment"],
@@ -108,11 +112,11 @@ sod_roles := [
 sod_violation contains user if {
     some user
     # grab one role for a user
-    role1 := user_roles[user][_]
+    some role1 in user_roles[user]
     # grab another role for that same user
-    role2 := user_roles[user][_]
+    some role2 in user_roles[user]
     # check if those roles are forbidden by SOD
-    sod_roles[_] == [role1, role2]
+    [role1, role2] in sod_roles
 }
 
 # Deny access if user has SOD violation
@@ -138,6 +142,8 @@ Automatically assigns roles based on user attributes rather than static assignme
 
 ```rego
 package rbac.dynamic
+
+import rego.v1
 
 import data.employees
 
@@ -183,9 +189,9 @@ default allow := false
 
 allow if {
     roles := user_roles[input.user]
-    role := roles[_]
+    some role in roles
     permissions := role_permissions[role]
-    permission := permissions[_]
+    some permission in permissions
     permission.action == input.action
     permission.resource == input.resource
 }
@@ -212,6 +218,8 @@ Implements role hierarchies where higher-level roles inherit permissions from lo
 
 ```rego
 package rbac.hierarchical
+
+import rego.v1
 
 # Role hierarchy: parent roles inherit permissions from child roles
 role_hierarchy := {
@@ -248,9 +256,9 @@ all_permissions[role] := permissions if {
     # Get inherited permissions from child roles
     children := role_hierarchy[role]
     inherited := {p |
-        child := children[_]
+        some child in children
         child_perms := all_permissions[child]
-        p := child_perms[_]
+        some p in child_perms
     }
     # Combine direct and inherited
     permissions := direct | inherited
@@ -266,9 +274,9 @@ default allow := false
 
 allow if {
     roles := user_roles[input.user]
-    role := roles[_]
+    some role in roles
     permissions := all_permissions[role]
-    permission := permissions[_]
+    some permission in permissions
     permission.action == input.action
     permission.resource == input.resource
 }
@@ -293,6 +301,8 @@ Restricts access based on time of day, day of week, or business hours.
 
 ```rego
 package abac.time
+
+import rego.v1
 
 default allow := false
 
@@ -349,6 +359,8 @@ Controls access based on geographic location or network source.
 
 ```rego
 package abac.location
+
+import rego.v1
 
 # Allowed geographic regions
 allowed_regions := {"us-east-1", "us-west-2", "eu-west-1"}
@@ -412,6 +424,8 @@ Requires MFA for sensitive operations or privileged access.
 
 ```rego
 package abac.mfa
+
+import rego.v1
 
 # Operations requiring MFA
 sensitive_operations := {"delete", "admin", "transfer-funds", "modify-security"}
@@ -488,6 +502,8 @@ Makes access decisions based on device type, network security level, and other c
 
 ```rego
 package abac.context
+
+import rego.v1
 
 # Trusted device fingerprints
 trusted_devices := {
@@ -567,6 +583,8 @@ Allows users to temporarily delegate their permissions to others with time-based
 ```rego
 package rbac.delegation
 
+import rego.v1
+
 import data.delegations
 
 # User role assignments
@@ -604,9 +622,9 @@ default allow := false
 # Normal role-based access
 allow if {
     roles := user_roles[input.user]
-    role := roles[_]
+    some role in roles
     permissions := role_permissions[role]
-    permission := permissions[_]
+    some permission in permissions
     permission.action == input.action
     permission.resource == input.resource
 }
@@ -632,7 +650,7 @@ is_valid_delegation(delegation) if {
 }
 
 has_delegated_permission(delegation) if {
-    permission := delegation.permissions[_]
+    some permission in delegation.permissions
     permission.action == input.action
     permission.resource == input.resource
 }
@@ -657,6 +675,8 @@ Organizes users into groups with shared permissions, supporting nested groups.
 
 ```rego
 package gbac.authz
+
+import rego.v1
 
 # User to group memberships
 user_groups := {
@@ -694,7 +714,7 @@ all_user_groups[user] := groups if {
     some user
     direct_groups := object.get(user_groups, user, [])
     inherited := {group |
-        direct := direct_groups[_]
+        some direct in direct_groups
         parent_groups[direct][group]
     }
     groups := direct_groups | inherited
@@ -714,9 +734,9 @@ default allow := false
 
 allow if {
     groups := all_user_groups[input.user]
-    group := groups[_]
+    some group in groups
     permissions := group_permissions[group]
-    permission := permissions[_]
+    some permission in permissions
     permission.action == input.action
     permission.resource == input.resource
 }
@@ -741,6 +761,8 @@ Comprehensive attribute-based access control using user, resource, and environme
 
 ```rego
 package abac.comprehensive
+
+import rego.v1
 
 # User attributes
 user_attributes := {
@@ -823,6 +845,8 @@ Implements permit-overrides algorithm where any permit decision overrides all de
 ```rego
 package policy.permit_overrides
 
+import rego.v1
+
 # Multiple policy modules that can return allow/deny decisions
 default allow := false
 
@@ -891,6 +915,8 @@ Implements deny-overrides algorithm where any deny decision overrides all permit
 ```rego
 package policy.deny_overrides
 
+import rego.v1
+
 # Deny rules take precedence
 default allow := true
 
@@ -955,6 +981,8 @@ Controls who can delegate permissions and under what conditions.
 
 ```rego
 package delegation.constraints
+
+import rego.v1
 
 # Roles that are allowed to delegate
 delegable_roles := {"manager", "admin", "team-lead"}
@@ -1033,6 +1061,8 @@ Implements mandatory access control with security labels and clearance levels.
 
 ```rego
 package mac.authz
+
+import rego.v1
 
 # User security clearances
 user_clearances := {
@@ -1138,6 +1168,8 @@ Implements discretionary access control where resource owners control access to 
 ```rego
 package dac.authz
 
+import rego.v1
+
 # Resource ownership
 resource_owners := {
     "file-001": "alice",
@@ -1213,6 +1245,8 @@ Enforces ownership-based access control with ownership transfer and delegation c
 
 ```rego
 package ownership.authz
+
+import rego.v1
 
 import data.resources
 
@@ -1297,6 +1331,8 @@ Access decisions depend on the current state or properties of the resource being
 
 ```rego
 package conditional.authz
+
+import rego.v1
 
 import data.resources
 
@@ -1385,6 +1421,8 @@ Provides emergency override mechanisms with strict auditing and justification re
 
 ```rego
 package breakglass.authz
+
+import rego.v1
 
 # Normal authorization rules
 default allow := false
@@ -1484,6 +1522,8 @@ Implements isolation and access control in multi-tenant environments.
 ```rego
 package multitenant.authz
 
+import rego.v1
+
 # User to tenant mappings
 user_tenants := {
     "alice": ["tenant-a"],
@@ -1529,7 +1569,7 @@ allow if {
 
 has_permission_in_tenant(user, tenant, action) if {
     # Get user's role in the tenant
-    user_role := tenant_roles[tenant][user][_]
+    some user_role in tenant_roles[tenant][user]
     # Get permissions for that role
     permissions := role_permissions[user_role]
     # Check if action is permitted

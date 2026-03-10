@@ -1,7 +1,11 @@
 {
-  "name": "tessl/golang-opa-rego-language",
-  "version": "1.13.0",
+  "name": "nicholasjackson/opa-rego-language",
+  "version": "1.15.1",
   "docs": "docs/index.md",
-  "describes": "pkg:golang/github.com/open-policy-agent/opa@v1.13.0",
-  "summary": "Rego is the declarative policy language used by Open Policy Agent (OPA) for writing and enforcing policies across cloud-native stacks, featuring data-driven rules, comprehensions, and 200+ built-in functions for infrastructure, security, and compliance automation."
+  "summary": "Rego is the declarative policy language used by Open Policy Agent (OPA). This tile covers writing and testing Rego policies for Kubernetes admission control, Terraform and infrastructure-as-code plan validation, Docker container authorization, HTTP API authorization, RBAC and role-based access control, data filtering, metadata annotations with opa inspect, and OPA policy testing with opa test.",
+  "steering": {
+    "rego-best-practices": {
+      "rules": "rules.md"
+    }
+  }
 }

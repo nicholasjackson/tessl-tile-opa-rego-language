@@ -1,0 +1,34 @@
+[
+  {
+    "name": "basic-rbac",
+    "description": "Implement a basic RBAC policy in Rego with user-role and role-permission mappings"
+  },
+  {
+    "name": "docker-authz-security",
+    "description": "Write a Docker daemon authorization policy in Rego that prevents privileged containers and disabled seccomp profiles"
+  },
+  {
+    "name": "http-api-authorization",
+    "description": "Write an HTTP API authorization policy in Rego that decodes a JWT token and controls access based on method, path, and manager-subordinate relationships"
+  },
+  {
+    "name": "terraform-iac-validation",
+    "description": "Write a Terraform plan validation policy in Rego that prevents aws_security_group resources from allowing inbound SSH access from the internet"
+  },
+  {
+    "name": "kubernetes-admission-control",
+    "description": "Write a Kubernetes admission control policy in Rego using the kube-mgmt pattern (package kubernetes.admission, deny contains msg)"
+  },
+  {
+    "name": "kubernetes-gatekeeper",
+    "description": "Write a Gatekeeper ConstraintTemplate Rego policy using the violation rule with input.review.object and input.parameters"
+  },
+  {
+    "name": "policy-metadata-annotations",
+    "description": "Write a Rego policy with full OPA metadata annotations at package and rule level including title, description, authors, entrypoint markers, and custom fields"
+  },
+  {
+    "name": "policy-testing",
+    "description": "Write a Rego policy and tests using OPA test conventions including _test package suffix, input/data mocking with `with`, and deny message verification"
+  }
+]

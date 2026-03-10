@@ -13,18 +13,61 @@ Infrastructure as Code validation with OPA enables:
 
 ---
 
+## IMPORTANT: Testing IaC Policies
+
+**The examples below include `entrypoint: true` on `deny` and `warn` rules**, which is correct for governance tooling (`opa inspect -a`, `opa build`) and direct OPA evaluation. **If you are evaluating policies with Conftest**, remove `entrypoint: true` from all `deny`, `warn`, and `violation` rules — Conftest queries rules by naming convention and does not use OPA's entrypoint mechanism. Adding `entrypoint: true` to Conftest rules changes their default scope to `document`, which may produce unexpected behavior in multi-file packages.
+
+**Do not assume you know the field structure of a Terraform resource.** Provider schemas change across versions and vary between providers. Before writing a policy for a specific resource type, use the Terraform MCP server to look up the current resource documentation and confirm the exact attribute names and their types as they appear in the plan JSON (`change.after`). Use `search_providers` to find the provider, then `get_provider_details` to retrieve the resource schema. For example, to confirm the `ingress` block attributes for `aws_security_group`, call `get_provider_details` with the resource type name. If the Terraform MCP server is not available, do not guess field names — ask the user to provide a sample plan JSON or the resource documentation.
+
+**Never run `terraform plan` or `terraform apply` to test policies.** Rego policies MUST be tested exclusively using `opa test`. Do NOT run `terraform plan`, `terraform apply`, or any Terraform commands to validate policy logic. Terraform operations are slow, require real infrastructure configuration, and do not provide the fine-grained test coverage that `opa test` offers. If you need to test a policy against a Terraform plan, create a mock plan JSON input in your `_test.rego` file and use the `with` keyword to inject it.
+
+**Always check both `create` and `update` actions.** When writing policies that validate resource configuration (e.g., encryption, tags, security settings), always check for both `"create"` and `"update"` actions. A resource that passes validation at creation time can later be modified to a non-compliant state. Use the pattern: `some action in r.change.actions; action in {"create", "update"}`. Only omit `"update"` when the policy is specifically about initial resource creation (e.g., naming conventions that cannot change after creation).
+
+**Do not check for `delete` actions unless the policy specifically prevents resource deletion.** Most policies validate resource configuration (encryption, tags, security settings) which is irrelevant when a resource is being destroyed. Only include `"delete"` in the action check when the policy is intended to prevent a resource from being deleted (e.g., protecting critical infrastructure from accidental removal).
+
+**Handle both raw Terraform and HCP Terraform/Enterprise input structures.** The plan JSON input differs depending on how OPA is invoked:
+
+- **Raw Terraform** (via `terraform show -json tfplan.binary`): The plan JSON **is** the entire input, so `resource_changes` is at `input.resource_changes`.
+- **HCP Terraform / Terraform Enterprise**: The plan is nested under `input.plan`, with additional run metadata at `input.run`. So `resource_changes` is at `input.plan.resource_changes`.
+
+Always use `object.get` to normalize access so policies work in both contexts without modification:
+
+```rego
+# Works with both raw Terraform and HCP Terraform/Enterprise input
+tfplan := object.get(input, "plan", input)
+```
+
+This should be the default pattern in all Terraform IaC policies. With this in place, `tfplan.resource_changes` resolves correctly regardless of the input source. Policy rules then use `tfplan` consistently:
+
+```rego
+deny contains msg if {
+    some r in tfplan.resource_changes
+    r.type == "aws_s3_bucket"
+    some action in r.change.actions; action in {"create", "update"}
+    not r.change.after.server_side_encryption_configuration
+    msg := sprintf("S3 bucket %v does not have encryption enabled", [r.address])
+}
+```
+
+---
+
 ## 1. BLAST RADIUS CONTROL FOR CHANGE MANAGEMENT
 
 Control the scope of infrastructure changes to prevent large-scale disruptions.
 
 ```rego
+# METADATA
+# title: Blast Radius Control
+# description: Controls the scope of infrastructure changes to prevent large-scale disruptions
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
-########################
-# Parameters for Policy
-########################
+tfplan := object.get(input, "plan", input)
 
 blast_radius := 30
 
@@ -35,12 +78,14 @@ weights := {
 
 resource_types := {"aws_autoscaling_group", "aws_instance", "aws_iam", "aws_launch_configuration"}
 
-#########
-# Policy
-#########
-
 default authz := false
 
+# METADATA
+# title: Authorize infrastructure changes
+# description: Approves changes only when blast radius score is below threshold and no IAM resources are modified
+# entrypoint: true
+# custom:
+#   severity: HIGH
 authz if {
     score < blast_radius
     not touches_iam
@@ -58,20 +103,20 @@ score := s if {
 }
 
 touches_iam if {
-    all_resources := resources.aws_iam
-    count(all_resources) > 0
+    some r in tfplan.resource_changes
+    startswith(r.type, "aws_iam")
 }
 
 num_deletes[resource_type] := count(resources) if {
-    resources := [r | r := resource_changes[_]; r.type == resource_type; r.change.actions[_] == "delete"]
+    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "delete" in r.change.actions]
 }
 
 num_creates[resource_type] := count(resources) if {
-    resources := [r | r := resource_changes[_]; r.type == resource_type; r.change.actions[_] == "create"]
+    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "create" in r.change.actions]
 }
 
 num_modifies[resource_type] := count(resources) if {
-    resources := [r | r := resource_changes[_]; r.type == resource_type; r.change.actions[_] == "update"]
+    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "update" in r.change.actions]
 }
 ```
 
@@ -84,28 +129,45 @@ num_modifies[resource_type] := count(resources) if {
 Ensure all S3 buckets are created with server-side encryption enabled.
 
 ```rego
+# METADATA
+# title: S3 Bucket Encryption Requirements
+# description: Ensures all S3 buckets have server-side encryption enabled with approved algorithms
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny unencrypted S3 buckets
+# description: Blocks S3 bucket creation without encryption configuration
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_s3_bucket"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     not r.change.after.server_side_encryption_configuration
     msg := sprintf("S3 bucket %v does not have encryption enabled", [r.address])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_s3_bucket_server_side_encryption_configuration"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     not encryption_algorithm_valid(r)
     msg := sprintf("S3 bucket %v uses invalid encryption algorithm", [r.address])
 }
 
 encryption_algorithm_valid(resource) if {
-    algo := resource.change.after.rule[_].apply_server_side_encryption_by_default[_].sse_algorithm
+    some rule_entry in resource.change.after.rule
+    some encryption_config in rule_entry.apply_server_side_encryption_by_default
+    algo := encryption_config.sse_algorithm
     algo in {"AES256", "aws:kms"}
 }
 ```
@@ -119,28 +181,45 @@ encryption_algorithm_valid(resource) if {
 Require versioning to be enabled on all S3 buckets for data protection.
 
 ```rego
+# METADATA
+# title: S3 Bucket Versioning Enforcement
+# description: Requires versioning to be enabled on all S3 buckets for data protection
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny S3 buckets without versioning
+# description: Blocks S3 bucket creation or update without versioning enabled
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_s3_bucket"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     not has_versioning_enabled(r)
     msg := sprintf("S3 bucket %v must have versioning enabled", [r.address])
 }
 
 has_versioning_enabled(resource) if {
-    resource.change.after.versioning[_].enabled == true
+    some v in resource.change.after.versioning
+    v.enabled == true
 }
 
 # Also check separate versioning resource
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_s3_bucket_versioning"
-    r.change.actions[_] in {"create", "update"}
-    r.change.after.versioning_configuration[_].status != "Enabled"
+    some action in r.change.actions; action in {"create", "update"}
+    some vc in r.change.after.versioning_configuration
+    vc.status != "Enabled"
     msg := sprintf("S3 bucket versioning %v must be Enabled", [r.address])
 }
 ```
@@ -154,15 +233,31 @@ deny contains msg if {
 Enforce mandatory tags across all cloud resources for cost tracking and governance.
 
 ```rego
+# METADATA
+# title: Required Tags Enforcement
+# description: Enforces mandatory tags across all cloud resources for cost tracking and governance
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 required_tags := ["Environment", "Owner", "CostCenter", "Project"]
 
+# METADATA
+# title: Deny resources missing required tags
+# description: Blocks resource creation or update when mandatory tags are missing
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
-    r.change.actions[_] != "delete"
+    some r in tfplan.resource_changes
+    some action in r.change.actions
+    action != "delete"
     supports_tags(r.type)
     tags := object.get(r.change.after, "tags", {})
     some required_tag in required_tags
@@ -171,8 +266,9 @@ deny contains msg if {
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
-    r.change.actions[_] != "delete"
+    some r in tfplan.resource_changes
+    some action in r.change.actions
+    action != "delete"
     supports_tags(r.type)
     tags := object.get(r.change.after, "tags", {})
     some tag_key, tag_value in tags
@@ -201,17 +297,32 @@ supports_tags(resource_type) if {
 Prevent overly permissive IAM policies and enforce least privilege principles.
 
 ```rego
+# METADATA
+# title: IAM Policy Protection and Least Privilege
+# description: Prevents overly permissive IAM policies and enforces least privilege principles
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny wildcard IAM permissions
+# description: Blocks IAM policies that grant unrestricted access to all actions and resources
+# custom:
+#   severity: HIGH
+# entrypoint: true
 # Deny IAM policies with wildcard actions on all resources
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type in {"aws_iam_policy", "aws_iam_role_policy"}
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     policy := json.unmarshal(r.change.after.policy)
-    statement := policy.Statement[_]
+    some statement in policy.Statement
     statement.Effect == "Allow"
     statement.Action == "*"
     statement.Resource == "*"
@@ -220,13 +331,13 @@ deny contains msg if {
 
 # Deny policies that allow privilege escalation
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type in {"aws_iam_policy", "aws_iam_role_policy"}
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     policy := json.unmarshal(r.change.after.policy)
-    statement := policy.Statement[_]
+    some statement in policy.Statement
     statement.Effect == "Allow"
-    dangerous_action := statement.Action[_]
+    some dangerous_action in statement.Action
     dangerous_action in privilege_escalation_actions
     msg := sprintf("IAM policy %v allows privilege escalation via %v", [r.address, dangerous_action])
 }
@@ -259,29 +370,44 @@ privilege_escalation_actions := {
 Prevent security groups from exposing services to the internet on dangerous ports.
 
 ```rego
+# METADATA
+# title: Security Group Validation - No Open Ports
+# description: Prevents security groups from exposing services to the internet on dangerous ports
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 dangerous_ports := {22, 3389, 1433, 3306, 5432, 27017, 6379, 9200, 9300}
 
+# METADATA
+# title: Deny public access on dangerous ports
+# description: Blocks security groups that allow internet access on sensitive service ports
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_security_group"
-    r.change.actions[_] in {"create", "update"}
-    ingress := r.change.after.ingress[_]
-    ingress.cidr_blocks[_] == "0.0.0.0/0"
+    some action in r.change.actions; action in {"create", "update"}
+    some ingress in r.change.after.ingress
+    "0.0.0.0/0" in ingress.cidr_blocks
     port := ingress.from_port
     port in dangerous_ports
     msg := sprintf("Security group %v allows public access on dangerous port %v", [r.address, port])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_security_group_rule"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     r.change.after.type == "ingress"
-    r.change.after.cidr_blocks[_] == "0.0.0.0/0"
+    "0.0.0.0/0" in r.change.after.cidr_blocks
     port := r.change.after.from_port
     port in dangerous_ports
     msg := sprintf("Security group rule %v allows public access on dangerous port %v", [r.address, port])
@@ -289,11 +415,11 @@ deny contains msg if {
 
 # Also deny unrestricted ingress on all ports
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_security_group"
-    r.change.actions[_] in {"create", "update"}
-    ingress := r.change.after.ingress[_]
-    ingress.cidr_blocks[_] == "0.0.0.0/0"
+    some action in r.change.actions; action in {"create", "update"}
+    some ingress in r.change.after.ingress
+    "0.0.0.0/0" in ingress.cidr_blocks
     ingress.from_port == 0
     ingress.to_port == 65535
     msg := sprintf("Security group %v allows unrestricted public access on all ports", [r.address])
@@ -309,29 +435,50 @@ deny contains msg if {
 Ensure security groups only use approved network protocols.
 
 ```rego
+# METADATA
+# title: Security Group Approved Protocols
+# description: Ensures security groups only use approved network protocols
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 approved_protocols := {"tcp", "udp", "icmp"}
 
+# METADATA
+# title: Deny unapproved protocols
+# description: Blocks security groups that use protocols outside the approved list
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_security_group"
-    r.change.actions[_] in {"create", "update"}
-    rule := r.change.after.ingress[_]
+    some action in r.change.actions; action in {"create", "update"}
+    some rule in r.change.after.ingress
     protocol := lower(rule.protocol)
     protocol != "-1"  # -1 means all protocols
     not protocol in approved_protocols
     msg := sprintf("Security group %v uses unapproved protocol: %v", [r.address, protocol])
 }
 
+# METADATA
+# title: Warn about unrestricted protocols
+# description: Warns when security groups allow all protocols
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 # Warn about all protocols (-1)
 warn contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_security_group"
-    r.change.actions[_] in {"create", "update"}
-    rule := r.change.after.ingress[_]
+    some action in r.change.actions; action in {"create", "update"}
+    some rule in r.change.after.ingress
     rule.protocol == "-1"
     msg := sprintf("Security group %v allows all protocols (-1), consider restricting", [r.address])
 }
@@ -346,13 +493,28 @@ warn contains msg if {
 CloudFormation hook policy to enforce S3 bucket security configurations.
 
 ```rego
+# METADATA
+# title: CloudFormation S3 Bucket Access Control
+# description: CloudFormation hook policy to enforce S3 bucket security configurations
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package system
+
+import rego.v1
 
 main := {
     "allow": count(deny) == 0,
     "violations": deny,
 }
 
+# METADATA
+# title: Deny non-private S3 buckets
+# description: Blocks S3 buckets that do not have private access control
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     bucket_create_or_update
     not bucket_is_private
@@ -398,10 +560,25 @@ block_public_policy if {
 Limit which EC2 instance types can be provisioned to control costs.
 
 ```rego
+# METADATA
+# title: CloudFormation EC2 Instance Type Restrictions
+# description: Limits which EC2 instance types can be provisioned to control costs
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package system
+
+import rego.v1
 
 allowed_instance_types := {"t2.micro", "t2.small", "t2.medium", "t3.micro", "t3.small", "t3.medium"}
 
+# METADATA
+# title: Deny unapproved instance types
+# description: Blocks EC2 instances using instance types not in the approved list
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     input.resource.type == "AWS::EC2::Instance"
     input.action in {"CREATE", "UPDATE"}
@@ -410,6 +587,12 @@ deny contains msg if {
     msg := sprintf("Instance type %v is not allowed. Allowed types: %v", [instance_type, allowed_instance_types])
 }
 
+# METADATA
+# title: Warn about missing monitoring
+# description: Warns when EC2 instances do not have detailed monitoring enabled
+# custom:
+#   severity: LOW
+# entrypoint: true
 # Ensure instances have proper monitoring
 warn contains msg if {
     input.resource.type == "AWS::EC2::Instance"
@@ -428,8 +611,23 @@ warn contains msg if {
 Validate security groups don't use insecure protocols across modules.
 
 ```rego
+# METADATA
+# title: Terraform Module Security Group Validation
+# description: Validates security groups across modules do not use insecure protocols
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.module
 
+import rego.v1
+
+# METADATA
+# title: Deny insecure HTTP in security groups
+# description: Blocks security groups that reference HTTP protocol across all modules
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r
     desc := resources[r].values.description
@@ -465,31 +663,46 @@ reverse_index(path, idx) := path[count(path) - idx]
 Ensure all RDS database instances and clusters have encryption at rest enabled.
 
 ```rego
+# METADATA
+# title: RDS Encryption at Rest
+# description: Ensures all RDS database instances and clusters have encryption at rest enabled
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny unencrypted RDS instances
+# description: Blocks RDS instance creation or update without storage encryption
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_db_instance"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     not r.change.after.storage_encrypted
     msg := sprintf("RDS instance %v must have storage encryption enabled", [r.address])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_rds_cluster"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     not r.change.after.storage_encrypted
     msg := sprintf("RDS cluster %v must have storage encryption enabled", [r.address])
 }
 
 # Require KMS for production databases
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type in {"aws_db_instance", "aws_rds_cluster"}
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     tags := object.get(r.change.after, "tags", {})
     tags.Environment == "production"
     not r.change.after.kms_key_id
@@ -506,26 +719,41 @@ deny contains msg if {
 Enforce backup retention policies for RDS databases.
 
 ```rego
+# METADATA
+# title: RDS Backup Retention Requirements
+# description: Enforces backup retention policies for RDS databases
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 minimum_backup_retention := 7
 production_backup_retention := 30
 
+# METADATA
+# title: Deny insufficient backup retention
+# description: Blocks RDS instances with backup retention below minimum threshold
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_db_instance"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     retention := object.get(r.change.after, "backup_retention_period", 0)
     retention < minimum_backup_retention
     msg := sprintf("RDS instance %v backup retention (%v days) is below minimum (%v days)", [r.address, retention, minimum_backup_retention])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_db_instance"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     tags := object.get(r.change.after, "tags", {})
     tags.Environment == "production"
     retention := object.get(r.change.after, "backup_retention_period", 0)
@@ -543,40 +771,55 @@ deny contains msg if {
 Validate Lambda function security and operational configurations.
 
 ```rego
+# METADATA
+# title: Lambda Function Configuration Validation
+# description: Validates Lambda function security and operational configurations
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny Lambda without dead letter queue
+# description: Blocks Lambda functions that lack dead letter queue configuration
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_lambda_function"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     not r.change.after.dead_letter_config
     msg := sprintf("Lambda function %v should have dead letter queue configured", [r.address])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_lambda_function"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     timeout := r.change.after.timeout
     timeout > 300
     msg := sprintf("Lambda function %v timeout (%v seconds) exceeds maximum (300 seconds)", [r.address, timeout])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_lambda_function"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     not r.change.after.tracing_config
     msg := sprintf("Lambda function %v should have X-Ray tracing enabled", [r.address])
 }
 
 # Ensure Lambda functions in VPC have proper networking
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_lambda_function"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     vpc_config := r.change.after.vpc_config
     count(vpc_config) > 0
     subnet_count := count(vpc_config[0].subnet_ids)
@@ -594,15 +837,30 @@ deny contains msg if {
 Enforce VPC and subnet architecture best practices.
 
 ```rego
+# METADATA
+# title: VPC and Subnet Configuration Policies
+# description: Enforces VPC and subnet architecture best practices
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny VPC without flow logs
+# description: Blocks VPC creation without associated flow log configuration
+# custom:
+#   severity: HIGH
+# entrypoint: true
 # Require VPC flow logs for network monitoring
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_vpc"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     vpc_id := r.address
     not has_flow_logs(vpc_id)
     msg := sprintf("VPC %v must have flow logs enabled", [r.address])
@@ -611,15 +869,15 @@ deny contains msg if {
 has_flow_logs(vpc_address) if {
     some r in tfplan.resource_changes
     r.type == "aws_flow_log"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     contains(r.change.after.vpc_id, vpc_address)
 }
 
 # Ensure subnets are properly tagged with tier
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_subnet"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     tags := object.get(r.change.after, "tags", {})
     not tags.Tier
     msg := sprintf("Subnet %v must have Tier tag (public/private/database)", [r.address])
@@ -627,9 +885,9 @@ deny contains msg if {
 
 # Validate subnet CIDR sizes
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_subnet"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     cidr := r.change.after.cidr_block
     cidr_parts := split(cidr, "/")
     prefix_length := to_number(cidr_parts[1])
@@ -647,32 +905,47 @@ deny contains msg if {
 Require encryption for all EBS volumes.
 
 ```rego
+# METADATA
+# title: EBS Volume Encryption Requirements
+# description: Requires encryption for all EBS volumes
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny unencrypted EBS volumes
+# description: Blocks creation of EBS volumes without encryption enabled
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_ebs_volume"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     not r.change.after.encrypted
     msg := sprintf("EBS volume %v must be encrypted", [r.address])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_instance"
-    r.change.actions[_] == "create"
-    ebs := r.change.after.ebs_block_device[_]
+    "create" in r.change.actions
+    some ebs in r.change.after.ebs_block_device
     not ebs.encrypted
     msg := sprintf("EC2 instance %v has unencrypted EBS volume", [r.address])
 }
 
 # Require KMS encryption for sensitive data volumes
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_ebs_volume"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     tags := object.get(r.change.after, "tags", {})
     tags.DataClassification in {"sensitive", "confidential"}
     not r.change.after.kms_key_id
@@ -689,30 +962,45 @@ deny contains msg if {
 Validate proper KMS key configuration and rotation.
 
 ```rego
+# METADATA
+# title: KMS Key Usage Policies
+# description: Validates proper KMS key configuration and rotation
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny KMS keys without rotation
+# description: Blocks KMS key creation or update without automatic key rotation enabled
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_kms_key"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     not r.change.after.enable_key_rotation
     msg := sprintf("KMS key %v must have automatic key rotation enabled", [r.address])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_kms_key"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     not r.change.after.deletion_window_in_days
     msg := sprintf("KMS key %v must specify deletion window", [r.address])
 }
 
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_kms_key"
-    r.change.actions[_] in {"create", "update"}
+    some action in r.change.actions; action in {"create", "update"}
     window := r.change.after.deletion_window_in_days
     window < 7
     msg := sprintf("KMS key %v deletion window (%v days) is too short (minimum 7 days)", [r.address, window])
@@ -720,9 +1008,9 @@ deny contains msg if {
 
 # Require proper key descriptions
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_kms_key"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     description := object.get(r.change.after, "description", "")
     count(description) < 10
     msg := sprintf("KMS key %v must have meaningful description (minimum 10 characters)", [r.address])
@@ -738,16 +1026,28 @@ deny contains msg if {
 Enforce consistent naming standards across infrastructure resources.
 
 ```rego
+# METADATA
+# title: Resource Naming Conventions
+# description: Enforces consistent naming standards across infrastructure resources
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
 
-import future.keywords.contains
-import future.keywords.if
+tfplan := object.get(input, "plan", input)
 
+# METADATA
+# title: Deny non-compliant resource names
+# description: Blocks resources with names that do not follow organizational naming conventions
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
-    r := tfplan.resource_changes[_]
-    r.change.actions[_] in {"create", "update"}
+    some r in tfplan.resource_changes
+    some action in r.change.actions; action in {"create", "update"}
     supports_naming(r.type)
     name := get_resource_name(r)
     not valid_name_format(name, r.type)
@@ -802,9 +1102,18 @@ valid_name_format(name, "aws_s3_bucket") if {
 Prevent creation of resources that exceed cost thresholds.
 
 ```rego
+# METADATA
+# title: Cost Estimation and Budget Enforcement
+# description: Prevents creation of resources that exceed cost thresholds
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # Estimated monthly costs for common instance types (USD)
 instance_costs := {
@@ -824,25 +1133,37 @@ monthly_budget := 1000
 
 total_estimated_cost := cost if {
     costs := [c |
-        r := tfplan.resource_changes[_]
+        some r in tfplan.resource_changes
         r.type == "aws_instance"
-        r.change.actions[_] == "create"
+        "create" in r.change.actions
         instance_type := r.change.after.instance_type
         c := instance_costs[instance_type]
     ]
     cost := sum(costs)
 }
 
+# METADATA
+# title: Deny deployments exceeding budget
+# description: Blocks deployments when estimated monthly cost exceeds the budget threshold
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     total_estimated_cost > monthly_budget
     msg := sprintf("Estimated monthly cost $%.2f exceeds budget $%.2f", [total_estimated_cost, monthly_budget])
 }
 
+# METADATA
+# title: Warn about expensive instance types
+# description: Warns when individual instances exceed cost threshold
+# custom:
+#   severity: LOW
+# entrypoint: true
 # Warn about expensive instance types
 warn contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_instance"
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     instance_type := r.change.after.instance_type
     cost := instance_costs[instance_type]
     cost > 100
@@ -859,13 +1180,28 @@ warn contains msg if {
 Ensure multi-region resources follow geographic compliance requirements.
 
 ```rego
+# METADATA
+# title: Multi-Region Deployment Policies
+# description: Ensures multi-region resources follow geographic compliance requirements
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
+import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 allowed_regions := {"us-east-1", "us-west-2", "eu-west-1", "eu-central-1"}
 eu_only_regions := {"eu-west-1", "eu-central-1"}
 
+# METADATA
+# title: Deny unapproved regions
+# description: Blocks deployments to regions outside the approved list
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     region := tfplan.configuration.provider_config.aws.expressions.region.constant_value
     not allowed_regions[region]
@@ -874,9 +1210,9 @@ deny contains msg if {
 
 # Ensure EU data stays in EU
 deny contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type in {"aws_s3_bucket", "aws_rds_cluster", "aws_dynamodb_table"}
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     tags := object.get(r.change.after, "tags", {})
     tags.DataResidency == "EU"
     region := tfplan.configuration.provider_config.aws.expressions.region.constant_value
@@ -884,11 +1220,17 @@ deny contains msg if {
     msg := sprintf("Resource %v with EU data residency requirement must be in EU region", [r.address])
 }
 
+# METADATA
+# title: Warn about missing replication for critical resources
+# description: Warns when critical resources lack multi-region replication
+# custom:
+#   severity: LOW
+# entrypoint: true
 # Require multi-region replication for critical resources
 warn contains msg if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type in {"aws_s3_bucket", "aws_dynamodb_table"}
-    r.change.actions[_] == "create"
+    "create" in r.change.actions
     tags := object.get(r.change.after, "tags", {})
     tags.Criticality == "high"
     not has_replication(r)
@@ -915,10 +1257,25 @@ has_replication(resource) if {
 Ensure Terraform state is stored securely with proper backend configuration.
 
 ```rego
+# METADATA
+# title: Terraform State Backend Validation
+# description: Ensures Terraform state is stored securely with proper backend configuration
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.state
 
-import input as tfplan
+import rego.v1
 
+tfplan := object.get(input, "plan", input)
+
+# METADATA
+# title: Deny missing remote state backend
+# description: Blocks Terraform configurations without a remote state backend
+# custom:
+#   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     backend := tfplan.configuration.terraform.backend
     not backend
@@ -946,10 +1303,11 @@ deny contains msg if {
 }
 
 state_bucket_has_versioning(bucket_name) if {
-    r := tfplan.resource_changes[_]
+    some r in tfplan.resource_changes
     r.type == "aws_s3_bucket_versioning"
     contains(r.change.after.bucket, bucket_name)
-    r.change.after.versioning_configuration[_].status == "Enabled"
+    some vc in r.change.after.versioning_configuration
+    vc.status == "Enabled"
 }
 ```
 
@@ -962,9 +1320,18 @@ state_bucket_has_versioning(bucket_name) if {
 Enforce provider version constraints to ensure reproducible infrastructure.
 
 ```rego
+# METADATA
+# title: Terraform Provider Version Constraints
+# description: Enforces provider version constraints to ensure reproducible infrastructure
+# authors:
+# - Infrastructure Security Team <infrasec@example.com>
+# custom:
+#   category: infrastructure-as-code
 package terraform.providers
 
-import input as tfplan
+import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 required_providers := {
     "aws": "~> 4.0",
@@ -972,6 +1339,12 @@ required_providers := {
     "google": "~> 4.0",
 }
 
+# METADATA
+# title: Deny missing required providers
+# description: Blocks configurations that do not specify required_providers with version constraints
+# custom:
+#   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     not tfplan.configuration.terraform.required_providers
     msg := "Terraform configuration must specify required_providers with version constraints"
@@ -999,6 +1372,12 @@ deny contains msg if {
     msg := "Terraform configuration must specify required_version constraint"
 }
 
+# METADATA
+# title: Warn about inflexible version constraints
+# description: Warns when Terraform version uses exact pinning instead of flexible constraints
+# custom:
+#   severity: LOW
+# entrypoint: true
 warn contains msg if {
     version := tfplan.configuration.terraform.required_version
     not contains(version, "~>")
