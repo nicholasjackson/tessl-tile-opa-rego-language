@@ -57,6 +57,8 @@ Mark decision rules with `entrypoint: true` so that OPA's CLI and tooling can au
 
 **`entrypoint: true` is required for governance tooling.** When you run `opa inspect -a` or use `opa build`, OPA uses this flag to distinguish the policy's public API (the rules your system queries) from internal helper rules. Without `entrypoint: true`, a rule's metadata will appear in `opa inspect` output but tooling cannot identify it as a decision rule vs. a utility function. Every decision rule that external systems call must be marked `entrypoint: true`.
 
+> **Conftest exception:** Do **not** add `entrypoint: true` to policies evaluated by Conftest. Conftest queries rules by naming convention (`deny`, `warn`, `violation` and their suffixed variants like `deny_no_latest_tag`) — it does not use OPA's entrypoint mechanism. Adding `entrypoint: true` to a Conftest rule is unnecessary and changes the rule's default scope to `document`, which may produce unexpected behavior in multi-file packages.
+
 ```rego
 # METADATA
 # title: Terraform Security Policy

@@ -15,6 +15,8 @@ Infrastructure as Code validation with OPA enables:
 
 ## IMPORTANT: Testing IaC Policies
 
+**The examples below include `entrypoint: true` on `deny` and `warn` rules**, which is correct for governance tooling (`opa inspect -a`, `opa build`) and direct OPA evaluation. **If you are evaluating policies with Conftest**, remove `entrypoint: true` from all `deny`, `warn`, and `violation` rules — Conftest queries rules by naming convention and does not use OPA's entrypoint mechanism. Adding `entrypoint: true` to Conftest rules changes their default scope to `document`, which may produce unexpected behavior in multi-file packages.
+
 **Do not assume you know the field structure of a Terraform resource.** Provider schemas change across versions and vary between providers. Before writing a policy for a specific resource type, use the Terraform MCP server to look up the current resource documentation and confirm the exact attribute names and their types as they appear in the plan JSON (`change.after`). Use `search_providers` to find the provider, then `get_provider_details` to retrieve the resource schema. For example, to confirm the `ingress` block attributes for `aws_security_group`, call `get_provider_details` with the resource type name. If the Terraform MCP server is not available, do not guess field names — ask the user to provide a sample plan JSON or the resource documentation.
 
 **Never run `terraform plan` or `terraform apply` to test policies.** Rego policies MUST be tested exclusively using `opa test`. Do NOT run `terraform plan`, `terraform apply`, or any Terraform commands to validate policy logic. Terraform operations are slow, require real infrastructure configuration, and do not provide the fine-grained test coverage that `opa test` offers. If you need to test a policy against a Terraform plan, create a mock plan JSON input in your `_test.rego` file and use the `with` keyword to inject it.
@@ -63,8 +65,9 @@ Control the scope of infrastructure changes to prevent large-scale disruptions.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 blast_radius := 30
 
@@ -100,20 +103,20 @@ score := s if {
 }
 
 touches_iam if {
-    all_resources := resources.aws_iam
-    count(all_resources) > 0
+    some r in tfplan.resource_changes
+    startswith(r.type, "aws_iam")
 }
 
 num_deletes[resource_type] := count(resources) if {
-    resources := [r | some r in resource_changes; r.type == resource_type; "delete" in r.change.actions]
+    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "delete" in r.change.actions]
 }
 
 num_creates[resource_type] := count(resources) if {
-    resources := [r | some r in resource_changes; r.type == resource_type; "create" in r.change.actions]
+    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "create" in r.change.actions]
 }
 
 num_modifies[resource_type] := count(resources) if {
-    resources := [r | some r in resource_changes; r.type == resource_type; "update" in r.change.actions]
+    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "update" in r.change.actions]
 }
 ```
 
@@ -135,15 +138,16 @@ Ensure all S3 buckets are created with server-side encryption enabled.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny unencrypted S3 buckets
 # description: Blocks S3 bucket creation without encryption configuration
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_s3_bucket"
@@ -186,15 +190,16 @@ Require versioning to be enabled on all S3 buckets for data protection.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny S3 buckets without versioning
 # description: Blocks S3 bucket creation or update without versioning enabled
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_s3_bucket"
@@ -237,17 +242,18 @@ Enforce mandatory tags across all cloud resources for cost tracking and governan
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 required_tags := ["Environment", "Owner", "CostCenter", "Project"]
 
 # METADATA
 # title: Deny resources missing required tags
 # description: Blocks resource creation or update when mandatory tags are missing
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     some action in r.change.actions
@@ -300,15 +306,16 @@ Prevent overly permissive IAM policies and enforce least privilege principles.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny wildcard IAM permissions
 # description: Blocks IAM policies that grant unrestricted access to all actions and resources
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 # Deny IAM policies with wildcard actions on all resources
 deny contains msg if {
     some r in tfplan.resource_changes
@@ -372,17 +379,18 @@ Prevent security groups from exposing services to the internet on dangerous port
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 dangerous_ports := {22, 3389, 1433, 3306, 5432, 27017, 6379, 9200, 9300}
 
 # METADATA
 # title: Deny public access on dangerous ports
 # description: Blocks security groups that allow internet access on sensitive service ports
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_security_group"
@@ -436,17 +444,18 @@ Ensure security groups only use approved network protocols.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 approved_protocols := {"tcp", "udp", "icmp"}
 
 # METADATA
 # title: Deny unapproved protocols
 # description: Blocks security groups that use protocols outside the approved list
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_security_group"
@@ -461,9 +470,9 @@ deny contains msg if {
 # METADATA
 # title: Warn about unrestricted protocols
 # description: Warns when security groups allow all protocols
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 # Warn about all protocols (-1)
 warn contains msg if {
     some r in tfplan.resource_changes
@@ -503,9 +512,9 @@ main := {
 # METADATA
 # title: Deny non-private S3 buckets
 # description: Blocks S3 buckets that do not have private access control
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     bucket_create_or_update
     not bucket_is_private
@@ -567,9 +576,9 @@ allowed_instance_types := {"t2.micro", "t2.small", "t2.medium", "t3.micro", "t3.
 # METADATA
 # title: Deny unapproved instance types
 # description: Blocks EC2 instances using instance types not in the approved list
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     input.resource.type == "AWS::EC2::Instance"
     input.action in {"CREATE", "UPDATE"}
@@ -581,9 +590,9 @@ deny contains msg if {
 # METADATA
 # title: Warn about missing monitoring
 # description: Warns when EC2 instances do not have detailed monitoring enabled
-# entrypoint: true
 # custom:
 #   severity: LOW
+# entrypoint: true
 # Ensure instances have proper monitoring
 warn contains msg if {
     input.resource.type == "AWS::EC2::Instance"
@@ -616,9 +625,9 @@ import rego.v1
 # METADATA
 # title: Deny insecure HTTP in security groups
 # description: Blocks security groups that reference HTTP protocol across all modules
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r
     desc := resources[r].values.description
@@ -663,15 +672,16 @@ Ensure all RDS database instances and clusters have encryption at rest enabled.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny unencrypted RDS instances
 # description: Blocks RDS instance creation or update without storage encryption
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_db_instance"
@@ -718,8 +728,9 @@ Enforce backup retention policies for RDS databases.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 minimum_backup_retention := 7
 production_backup_retention := 30
@@ -727,9 +738,9 @@ production_backup_retention := 30
 # METADATA
 # title: Deny insufficient backup retention
 # description: Blocks RDS instances with backup retention below minimum threshold
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_db_instance"
@@ -769,15 +780,16 @@ Validate Lambda function security and operational configurations.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny Lambda without dead letter queue
 # description: Blocks Lambda functions that lack dead letter queue configuration
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_lambda_function"
@@ -834,15 +846,16 @@ Enforce VPC and subnet architecture best practices.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny VPC without flow logs
 # description: Blocks VPC creation without associated flow log configuration
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 # Require VPC flow logs for network monitoring
 deny contains msg if {
     some r in tfplan.resource_changes
@@ -901,15 +914,16 @@ Require encryption for all EBS volumes.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny unencrypted EBS volumes
 # description: Blocks creation of EBS volumes without encryption enabled
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_ebs_volume"
@@ -957,15 +971,16 @@ Validate proper KMS key configuration and rotation.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny KMS keys without rotation
 # description: Blocks KMS key creation or update without automatic key rotation enabled
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_kms_key"
@@ -1020,15 +1035,16 @@ Enforce consistent naming standards across infrastructure resources.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny non-compliant resource names
 # description: Blocks resources with names that do not follow organizational naming conventions
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     some r in tfplan.resource_changes
     some action in r.change.actions; action in {"create", "update"}
@@ -1095,8 +1111,9 @@ Prevent creation of resources that exceed cost thresholds.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # Estimated monthly costs for common instance types (USD)
 instance_costs := {
@@ -1128,9 +1145,9 @@ total_estimated_cost := cost if {
 # METADATA
 # title: Deny deployments exceeding budget
 # description: Blocks deployments when estimated monthly cost exceeds the budget threshold
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     total_estimated_cost > monthly_budget
     msg := sprintf("Estimated monthly cost $%.2f exceeds budget $%.2f", [total_estimated_cost, monthly_budget])
@@ -1139,9 +1156,9 @@ deny contains msg if {
 # METADATA
 # title: Warn about expensive instance types
 # description: Warns when individual instances exceed cost threshold
-# entrypoint: true
 # custom:
 #   severity: LOW
+# entrypoint: true
 # Warn about expensive instance types
 warn contains msg if {
     some r in tfplan.resource_changes
@@ -1172,8 +1189,9 @@ Ensure multi-region resources follow geographic compliance requirements.
 #   category: infrastructure-as-code
 package terraform.analysis
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 allowed_regions := {"us-east-1", "us-west-2", "eu-west-1", "eu-central-1"}
 eu_only_regions := {"eu-west-1", "eu-central-1"}
@@ -1181,9 +1199,9 @@ eu_only_regions := {"eu-west-1", "eu-central-1"}
 # METADATA
 # title: Deny unapproved regions
 # description: Blocks deployments to regions outside the approved list
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     region := tfplan.configuration.provider_config.aws.expressions.region.constant_value
     not allowed_regions[region]
@@ -1205,9 +1223,9 @@ deny contains msg if {
 # METADATA
 # title: Warn about missing replication for critical resources
 # description: Warns when critical resources lack multi-region replication
-# entrypoint: true
 # custom:
 #   severity: LOW
+# entrypoint: true
 # Require multi-region replication for critical resources
 warn contains msg if {
     some r in tfplan.resource_changes
@@ -1248,15 +1266,16 @@ Ensure Terraform state is stored securely with proper backend configuration.
 #   category: infrastructure-as-code
 package terraform.state
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 # METADATA
 # title: Deny missing remote state backend
 # description: Blocks Terraform configurations without a remote state backend
-# entrypoint: true
 # custom:
 #   severity: HIGH
+# entrypoint: true
 deny contains msg if {
     backend := tfplan.configuration.terraform.backend
     not backend
@@ -1310,8 +1329,9 @@ Enforce provider version constraints to ensure reproducible infrastructure.
 #   category: infrastructure-as-code
 package terraform.providers
 
-import input as tfplan
 import rego.v1
+
+tfplan := object.get(input, "plan", input)
 
 required_providers := {
     "aws": "~> 4.0",
@@ -1322,9 +1342,9 @@ required_providers := {
 # METADATA
 # title: Deny missing required providers
 # description: Blocks configurations that do not specify required_providers with version constraints
-# entrypoint: true
 # custom:
 #   severity: MEDIUM
+# entrypoint: true
 deny contains msg if {
     not tfplan.configuration.terraform.required_providers
     msg := "Terraform configuration must specify required_providers with version constraints"
@@ -1355,9 +1375,9 @@ deny contains msg if {
 # METADATA
 # title: Warn about inflexible version constraints
 # description: Warns when Terraform version uses exact pinning instead of flexible constraints
-# entrypoint: true
 # custom:
 #   severity: LOW
+# entrypoint: true
 warn contains msg if {
     version := tfplan.configuration.terraform.required_version
     not contains(version, "~>")

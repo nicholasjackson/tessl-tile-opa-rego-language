@@ -24,7 +24,7 @@ These rules MUST be followed whenever generating or modifying Rego policy code. 
 
   **Do NOT substitute manual testing (e.g., `opa eval`, `opa exec`) for unit tests.** Manual evaluation may be used for debugging, but every policy MUST have a `_test.rego` file with comprehensive unit tests that can be run with `opa test`.
 
-- **Never import input directly**: Always keep `input` references explicit (e.g., `input.resource.tags`) rather than importing input or individual input fields. This maintains a clear distinction between external input data and local variables, making policies easier to audit and debug. The only acceptable exception is contextual renaming for readability (e.g., `import input as tfplan`). Note: `input` and `data` are reserved names in OPA 1.0 and cannot be used as rule or variable names.
+- **Never import input directly**: Always keep `input` references explicit (e.g., `input.resource.tags`) rather than importing input or individual input fields. This maintains a clear distinction between external input data and local variables, making policies easier to audit and debug. Note: `input` and `data` are reserved names in OPA 1.0 and cannot be used as rule or variable names. For Terraform IaC policies, never use `import input as tfplan` — always normalise with `tfplan := object.get(input, "plan", input)` so the policy works with both raw Terraform and HCP Terraform/Enterprise input structures.
 
 ## Structural Patterns
 
@@ -40,9 +40,9 @@ These rules MUST be followed whenever generating or modifying Rego policy code. 
   3. Imports
   4. Constants and configuration
   5. Helper rules and functions
-  6. Main policy rules (with entrypoint annotation)
+  6. Main policy rules
 
-- **Mark main decision rules with entrypoint**: Use `# METADATA` with `entrypoint: true` to document which rules are meant to be queried externally. Enables automatic compilation and helps tools understand policy structure.
+- **Mark main decision rules with entrypoint — except for Conftest policies**: Use `# METADATA` with `entrypoint: true` on rules that are queried directly by external systems (admission controllers, OPA REST API, governance tooling). This enables `opa inspect -a` auto-discovery and `opa build` compilation. **Do NOT add `entrypoint: true` to policies evaluated by Conftest** — Conftest queries rules by naming convention (`deny`, `warn`, `violation`) and does not use OPA's entrypoint mechanism. Adding `entrypoint: true` to a Conftest rule changes its default scope to `document`, which may produce unexpected behavior in multi-file packages.
 
 - **Co-locate tests with policies**: Place test files in same directory as policy files. Use `_test.rego` suffix and `package_name_test` for test package names.
 
@@ -112,13 +112,13 @@ These rules MUST be followed whenever generating or modifying Rego policy code. 
 
 - **Use schema annotations for input validation**: Associate JSON schemas with `input` and `data` paths using `# METADATA` schema annotations. Enables `opa check` to catch structural errors and typos at build time rather than runtime.
 
-- **Use metadata annotations on all entrypoint rules**: Every externally-queried rule should have `# METADATA` with at minimum `title`, `description`, and `entrypoint: true`. This enables CLI auto-discovery, documentation generation, and policy governance.
+- **Use metadata annotations on all entrypoint rules**: Every directly-queried decision rule (admission controllers, OPA REST API, governance tooling) should have `# METADATA` with at minimum `title`, `description`, and `entrypoint: true`. This enables CLI auto-discovery, documentation generation, and policy governance. Exception: Conftest `deny`/`warn`/`violation` rules must NOT have `entrypoint: true` — see entrypoint guidance above.
 
 - **Classify rules by severity using custom metadata**: Use `custom: severity: HIGH|MEDIUM|LOW` to categorize policy rules. Enables filtering, reporting, and prioritized violation handling.
 
 - **Use `rego.metadata.rule()` for dynamic behavior**: Access annotation data programmatically when policies need to adapt based on their own metadata (e.g., severity-aware error formatting).
 
-- **Import packages, not specific rules**: Provides context. Example: `user.is_admin` clearer than standalone `is_admin`. Exception: rename `input` for context (e.g., `import input as tfplan`). Never import individual `future.keywords` — use `import rego.v1` or rely on OPA 1.0 defaults.
+- **Import packages, not specific rules**: Provides context. Example: `user.is_admin` clearer than standalone `is_admin`. Never import individual `future.keywords` — use `import rego.v1` or rely on OPA 1.0 defaults. Never use `import input as tfplan` in Terraform IaC policies — use `tfplan := object.get(input, "plan", input)` instead.
 
 
 - **Use leading underscore for internal helpers**: Communicates intended scope. Tools can leverage this convention.

@@ -1,12 +1,7 @@
 {
   "type": "weighted_checklist",
-  "context": "Evaluates whether the agent implements a correct Terraform plan validation policy in Rego for aws_security_group resources, using the canonical terraform.analysis package, normalizing input with object.get, checking both create and update actions, and denying security groups that allow inbound SSH (port 22) from the internet.",
+  "context": "Evaluates whether the agent implements a correct Terraform plan validation policy in Rego for aws_security_group resources, using the canonical terraform.analysis package, normalizing input with object.get so the policy works with both raw Terraform and HCP Terraform/Enterprise input structures, checking both create and update actions, and denying security groups that allow inbound SSH (port 22) from the internet.",
   "checklist": [
-    {
-      "name": "package terraform.analysis",
-      "description": "The policy uses `package terraform.analysis` (the canonical package for OPA Terraform plan validation)",
-      "max_score": 10
-    },
     {
       "name": "import rego.v1",
       "description": "The policy file includes `import rego.v1`",
@@ -14,8 +9,8 @@
     },
     {
       "name": "object.get input normalization",
-      "description": "The policy normalizes the plan input with `object.get(input, \"plan\", input)` to support both raw Terraform and HCP Terraform input structures",
-      "max_score": 15
+      "description": "The policy defines `tfplan := object.get(input, \"plan\", input)` as a package-level rule (NOT `import input as tfplan`) and uses `tfplan.resource_changes` throughout — never `input.resource_changes` directly",
+      "max_score": 20
     },
     {
       "name": "Checks create and update actions",
@@ -29,12 +24,12 @@
     },
     {
       "name": "Deny rule for SSH from internet",
-      "description": "A deny rule triggers when an ingress rule allows port 22 with cidr 0.0.0.0/0 (or ::/0)",
-      "max_score": 30
+      "description": "A deny rule triggers when an ingress rule allows port 22 with cidr 0.0.0.0/0 (or ::/0), accessing ingress via `r.change.after.ingress`",
+      "max_score": 25
     },
     {
       "name": "Tests pass",
-      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "description": "All tests pass when running `opa test . -v` (if tests are present). Tests should include at least one case with HCP Terraform input structure (plan nested under `input.plan`) to verify the object.get normalization works correctly.",
       "max_score": 10
     }
   ]
