@@ -316,6 +316,61 @@ test_allow_with_value_mock if {
 }
 ```
 
+### Mocking `io.jwt.decode` (1-argument form)
+
+`io.jwt.decode(token)` takes a single argument and returns `[header, payload, signature]`. It does **not** verify the signature — use it when the policy only needs to read claims without validation. Mock it with a 1-argument function:
+
+```rego
+# File: httpapi_authz.rego
+package httpapi.authz
+
+import rego.v1
+
+default allow := false
+
+allow if {
+    [_, payload, _] := io.jwt.decode(input.token)
+    payload.sub == input.path[2]  # user can access their own record
+}
+```
+
+```rego
+# File: httpapi_authz_test.rego
+package httpapi.authz_test
+
+import data.httpapi.authz
+import rego.v1
+
+# Mock for io.jwt.decode — arity 1, returns [header, payload, signature]
+mock_decode_alice(_) := [{}, {"sub": "alice"}, ""]
+
+mock_decode_bob(_) := [{}, {"sub": "bob"}, ""]
+
+test_alice_accesses_own_record if {
+    authz.allow
+        with input as {"token": "any", "path": ["finance", "salary", "alice"]}
+        with io.jwt.decode as mock_decode_alice
+}
+
+test_alice_cannot_access_bobs_record if {
+    not authz.allow
+        with input as {"token": "any", "path": ["finance", "salary", "bob"]}
+        with io.jwt.decode as mock_decode_alice
+}
+
+# Alternatively, mock with a constant value (simplest form — all calls return same result)
+test_allow_with_constant_mock if {
+    authz.allow
+        with input as {"token": "any", "path": ["finance", "salary", "alice"]}
+        with io.jwt.decode as [{}, {"sub": "alice"}, ""]
+}
+```
+
+Key points:
+- `io.jwt.decode` arity is 1 (token only) — mock function must take exactly 1 argument
+- `io.jwt.decode_verify` arity is 2 (token + constraints) — mock function must take exactly 2 arguments
+- The simplest mock is a constant value: `with io.jwt.decode as [{}, {"sub": "alice"}, ""]`
+
 ---
 
 ## 7. Testing Deny Rules and Violation Messages
@@ -762,50 +817,136 @@ test_deployment_missing_app_label_denied if {
 }
 ```
 
+### Gatekeeper ConstraintTemplate Tests
+
+Gatekeeper policies differ from kube-mgmt: they use `violation[{"msg": msg}]` (or `violation contains {"msg": msg}` with `import rego.v1`), read from `input.review.object` (not `input.request.object`), and receive constraint parameters via `input.parameters`.
+
+```rego
+# File: required_labels.rego (inside ConstraintTemplate spec.targets[].rego)
+package requiredlabels
+
+import rego.v1
+
+violation contains {"msg": msg} if {
+    provided := {label | input.review.object.metadata.labels[label]}
+    required := {label | label := input.parameters.labels[_]}
+    missing := required - provided
+    count(missing) > 0
+    msg := sprintf("Missing required labels: %v", [missing])
+}
+```
+
+```rego
+# File: required_labels_test.rego
+package requiredlabels_test
+
+import data.requiredlabels
+import rego.v1
+
+# Helper to build Gatekeeper review input
+mock_review(labels, params) := {
+    "parameters": params,
+    "review": {
+        "object": {
+            "metadata": {
+                "name": "test-deployment",
+                "labels": labels,
+            },
+        },
+    },
+}
+
+test_all_required_labels_present if {
+    inp := mock_review(
+        {"app": "myapp", "team": "platform", "env": "prod"},
+        {"labels": ["app", "team"]},
+    )
+    count(requiredlabels.violation) == 0 with input as inp
+}
+
+test_missing_required_label_denied if {
+    inp := mock_review(
+        {"app": "myapp"},
+        {"labels": ["app", "team"]},
+    )
+    result := requiredlabels.violation with input as inp
+    count(result) == 1
+    some v in result
+    contains(v.msg, "team")
+}
+
+test_no_labels_at_all_denied if {
+    inp := mock_review(
+        {},
+        {"labels": ["app", "team"]},
+    )
+    result := requiredlabels.violation with input as inp
+    count(result) == 1
+}
+
+test_no_required_labels_configured_passes if {
+    inp := mock_review(
+        {},
+        {"labels": []},
+    )
+    count(requiredlabels.violation) == 0 with input as inp
+}
+```
+
+Key differences from kube-mgmt tests:
+- Input uses `input.review.object` (not `input.request.object`)
+- Rule is `violation contains {"msg": msg}` (not `deny contains msg`)
+- Test checks `violation` set, not `deny` set
+- Constraint parameters are passed via `input.parameters`
+- No `input.request.kind.kind` check — Gatekeeper scopes by constraint `match` config, not policy
+
 ---
 
 ## 13. Testing Terraform and Infrastructure Policies
 
 Test patterns for infrastructure-as-code policies using Terraform plan JSON structure.
 
+**Important**: Always use `tfplan := object.get(input, "plan", input)` (not `import input as tfplan`) so the policy works with both raw Terraform (`input.resource_changes`) and HCP Terraform/Enterprise (`input.plan.resource_changes`) input formats. Tests must cover both input shapes.
+
 ```rego
-# File: terraform_policy.rego
-package terraform.policy
+# File: terraform_analysis.rego
+package terraform.analysis
 
 import rego.v1
 
+# Normalize input: works for both raw Terraform and HCP Terraform/Enterprise.
+# Raw Terraform: resource_changes is at input.resource_changes
+# HCP Terraform/Enterprise: plan is nested at input.plan, so resource_changes is at input.plan.resource_changes
+tfplan := object.get(input, "plan", input)
+
 deny contains msg if {
-    some resource in input.resource_changes
+    some resource in tfplan.resource_changes
     resource.type == "aws_s3_bucket"
+    some action in resource.change.actions
+    action in {"create", "update"}
     change := resource.change.after
     not change.server_side_encryption_configuration
     msg := sprintf("S3 bucket '%v' must have encryption enabled", [resource.address])
 }
 
 deny contains msg if {
-    some resource in input.resource_changes
+    some resource in tfplan.resource_changes
     resource.type == "aws_security_group_rule"
+    some action in resource.change.actions
+    action in {"create", "update"}
     resource.change.after.cidr_blocks
     some cidr in resource.change.after.cidr_blocks
     cidr == "0.0.0.0/0"
     resource.change.after.type == "ingress"
     msg := sprintf("Security group rule '%v' must not allow ingress from 0.0.0.0/0", [resource.address])
 }
-
-warn contains msg if {
-    some resource in input.resource_changes
-    resource.type == "aws_instance"
-    instance_type := resource.change.after.instance_type
-    startswith(instance_type, "x1")
-    msg := sprintf("Instance '%v' uses expensive type '%v'", [resource.address, instance_type])
-}
 ```
 
 ```rego
-# File: terraform_policy_test.rego
-package terraform.policy_test
+# File: terraform_analysis_test.rego
+package terraform.analysis_test
 
-import data.terraform.policy
+import data.terraform.analysis
 import rego.v1
 
 # Helper to build resource change objects
@@ -818,58 +959,57 @@ mock_resource(type, address, after) := {
     },
 }
 
-test_encrypted_s3_allowed if {
+# --- Raw Terraform input (resource_changes at top level) ---
+
+test_encrypted_s3_allowed_raw if {
     resource := mock_resource("aws_s3_bucket", "aws_s3_bucket.data", {
         "bucket": "my-data-bucket",
         "server_side_encryption_configuration": {
             "rule": {"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}},
         },
     })
-    count(policy.deny) == 0 with input.resource_changes as [resource]
+    count(analysis.deny) == 0 with input as {"resource_changes": [resource]}
 }
 
-test_unencrypted_s3_denied if {
+test_unencrypted_s3_denied_raw if {
     resource := mock_resource("aws_s3_bucket", "aws_s3_bucket.data", {
         "bucket": "my-data-bucket",
     })
-    result := policy.deny with input.resource_changes as [resource]
+    result := analysis.deny with input as {"resource_changes": [resource]}
     "S3 bucket 'aws_s3_bucket.data' must have encryption enabled" in result
 }
 
-test_open_security_group_denied if {
+test_open_security_group_denied_raw if {
     resource := mock_resource("aws_security_group_rule", "aws_security_group_rule.web", {
         "type": "ingress",
         "cidr_blocks": ["0.0.0.0/0"],
         "from_port": 22,
         "to_port": 22,
     })
-    result := policy.deny with input.resource_changes as [resource]
+    result := analysis.deny with input as {"resource_changes": [resource]}
     count(result) == 1
 }
 
-test_restricted_security_group_allowed if {
-    resource := mock_resource("aws_security_group_rule", "aws_security_group_rule.web", {
-        "type": "ingress",
-        "cidr_blocks": ["10.0.0.0/8"],
-        "from_port": 443,
-        "to_port": 443,
+# --- HCP Terraform / Terraform Enterprise input (plan nested under input.plan) ---
+# Verifies that tfplan := object.get(input, "plan", input) normalization works correctly.
+
+test_unencrypted_s3_denied_hcp if {
+    resource := mock_resource("aws_s3_bucket", "aws_s3_bucket.data", {
+        "bucket": "my-data-bucket",
     })
-    count(policy.deny) == 0 with input.resource_changes as [resource]
+    # HCP Terraform wraps the plan under input.plan
+    result := analysis.deny with input as {"plan": {"resource_changes": [resource]}}
+    "S3 bucket 'aws_s3_bucket.data' must have encryption enabled" in result
 }
 
-test_expensive_instance_warns if {
-    resource := mock_resource("aws_instance", "aws_instance.compute", {
-        "instance_type": "x1.16xlarge",
+test_encrypted_s3_allowed_hcp if {
+    resource := mock_resource("aws_s3_bucket", "aws_s3_bucket.data", {
+        "bucket": "my-data-bucket",
+        "server_side_encryption_configuration": {
+            "rule": {"apply_server_side_encryption_by_default": {"sse_algorithm": "AES256"}},
+        },
     })
-    result := policy.warn with input.resource_changes as [resource]
-    count(result) == 1
-}
-
-test_normal_instance_no_warning if {
-    resource := mock_resource("aws_instance", "aws_instance.compute", {
-        "instance_type": "t3.medium",
-    })
-    count(policy.warn) == 0 with input.resource_changes as [resource]
+    count(analysis.deny) == 0 with input as {"plan": {"resource_changes": [resource]}}
 }
 ```
 
@@ -1382,14 +1522,14 @@ This document covers the following testing patterns:
 3. **Test Outcomes** - PASS, FAIL, ERROR, and SKIPPED statuses
 4. **Mock Input** - Replacing `input` with test data
 5. **Mock Data** - Replacing `data` references
-6. **Mock Functions** - Replacing built-in and custom functions
+6. **Mock Functions** - Replacing built-in and custom functions, including `io.jwt.decode` (1-arg) and `io.jwt.decode_verify` (2-arg)
 7. **Deny Rules** - Testing violation messages and sets
 8. **Parameterized Tests** - Data-driven test cases
 9. **External Test Data** - Loading fixtures from JSON/YAML files
 10. **Helper Functions** - Testing utilities in isolation
 11. **Partial Rules** - Testing set generation and membership
-12. **Kubernetes Policies** - AdmissionReview test patterns
-13. **Terraform Policies** - Plan JSON test patterns
+12. **Kubernetes Policies** - AdmissionReview test patterns (kube-mgmt) and Gatekeeper ConstraintTemplate test patterns (`input.review.object`, `input.parameters`, `violation` set)
+13. **Terraform Policies** - Plan JSON test patterns for both raw Terraform and HCP Terraform/Enterprise input structures, using `tfplan := object.get(input, "plan", input)` normalization
 14. **HTTP Authorization** - API authorization test patterns
 15. **Container Security** - Docker authorization test patterns
 16. **Negative Testing** - Ensuring policies reject invalid inputs

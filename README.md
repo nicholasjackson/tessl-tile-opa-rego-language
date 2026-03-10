@@ -4,7 +4,7 @@
 
 This tile teaches AI agents how to write correct, idiomatic [Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) policies using [Open Policy Agent (OPA)](https://www.openpolicyagent.org/). It covers the full range of OPA use cases and enforces best practices through steering rules and curated reference documentation.
 
-### What AI agents learns from this tile
+### What AI agents learn from this tile
 
 **Policy domains covered:**
 - **Kubernetes admission control** — OPA webhook policies and OPA Gatekeeper `ConstraintTemplate` policies
