@@ -24,6 +24,8 @@ These rules MUST be followed whenever generating or modifying Rego policy code. 
 
   **Do NOT substitute manual testing (e.g., `opa eval`, `opa exec`) for unit tests.** Manual evaluation may be used for debugging, but every policy MUST have a `_test.rego` file with comprehensive unit tests that can be run with `opa test`.
 
+- **Never run Terraform commands automatically**: Do NOT run `terraform plan`, `terraform apply`, `terraform init`, or any other Terraform CLI command. Terraform operations require real credentials and infrastructure configuration, can have unintended side effects, and are outside the scope of Rego policy authoring. If you need a plan JSON to write or test a policy, either create a mock plan JSON inline in the `_test.rego` file using the `with` keyword, or ask the user to run `terraform plan -out=tfplan.binary && terraform show -json tfplan.binary > plan.json` and provide the output.
+
 - **Never import input directly**: Always keep `input` references explicit (e.g., `input.resource.tags`) rather than importing input or individual input fields. This maintains a clear distinction between external input data and local variables, making policies easier to audit and debug. Note: `input` and `data` are reserved names in OPA 1.0 and cannot be used as rule or variable names. For Terraform IaC policies, never use `import input as tfplan` — always normalise with `tfplan := object.get(input, "plan", input)` so the policy works with both raw Terraform and HCP Terraform/Enterprise input structures.
 
 ## Structural Patterns

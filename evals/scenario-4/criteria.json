@@ -31,6 +31,11 @@
       "name": "Tests pass",
       "description": "All tests pass when running `opa test . -v` (if tests are present). Tests should include at least one case with HCP Terraform input structure (plan nested under `input.plan`) to verify the object.get normalization works correctly.",
       "max_score": 10
+    },
+    {
+      "name": "Does not run Terraform commands",
+      "description": "The agent does NOT run `terraform plan`, `terraform apply`, `terraform init`, or any other Terraform CLI command at any point. Policy testing is done exclusively via `opa test` with mock plan JSON in `_test.rego`.",
+      "max_score": 10
     }
   ]
 }
