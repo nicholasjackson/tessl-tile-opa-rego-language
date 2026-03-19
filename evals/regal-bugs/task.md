@@ -1,4 +1,4 @@
-# Kubernetes: Namespace Policy Validation
+# Regal: Bug Avoidance — Namespace Policy Validation
 
 Write a Rego policy in the package `kubernetes.namespaces` that validates Kubernetes namespace objects. The policy should:
 

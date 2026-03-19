@@ -1,4 +1,4 @@
-# HTTP API: Department-Based Access Control
+# Regal: Membership Operators — Department-Based Access Control
 
 Write a Rego policy that allows access to API endpoints based on the user's department. Each endpoint has a set of allowed departments stored in `data.endpoint_access`. Deny access if the user's department is not in the allowed set.
 

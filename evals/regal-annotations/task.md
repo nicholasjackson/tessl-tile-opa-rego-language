@@ -1,4 +1,4 @@
-# RBAC: Annotated Authorization Policy
+# Regal: Annotations — RBAC Authorization Policy
 
 Write a fully annotated Rego policy in the package `rbac.authz` with metadata annotations:
 

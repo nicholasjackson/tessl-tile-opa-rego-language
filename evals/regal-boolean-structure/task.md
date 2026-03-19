@@ -1,4 +1,4 @@
-# Kubernetes: Pod Security Policy
+# Regal: Boolean Structure — Pod Security Policy
 
 Write a Rego policy in the package `kubernetes.security` that validates Kubernetes pod specs. The policy should:
 

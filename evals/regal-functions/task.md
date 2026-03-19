@@ -1,4 +1,4 @@
-# Kubernetes: Container Security Validation with Helper Functions
+# Regal: Function Style — Container Security Validation
 
 Write a Rego policy that validates container security settings in Kubernetes Pods. Use helper functions to check individual container properties. Each helper function must take the container object as an explicit argument — do not reference `input` or `data` directly inside a function body.
 

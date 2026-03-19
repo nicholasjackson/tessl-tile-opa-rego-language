@@ -1,4 +1,4 @@
-# RBAC: Role-Based Access Control Policy
+# Regal: Naming Conventions — RBAC Policy
 
 Write a Rego policy in the package `rbac.authz` that implements role-based access control for API endpoints. Users have roles stored in `data.user_roles`. Roles have permissions stored in `data.role_permissions`. Allow access when the user's role grants the required permission for the requested endpoint and method.
 

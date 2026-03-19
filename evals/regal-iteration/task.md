@@ -1,4 +1,4 @@
-# Kubernetes: Container Image Registry Validation
+# Regal: Iteration Style — Container Image Registry Validation
 
 Write a Rego policy that validates all containers in a Kubernetes Pod use images from the approved registry (`registry.example.com`). Deny any Pod that has a container using an image from any other registry.
 

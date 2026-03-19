@@ -1,4 +1,4 @@
-# Terraform: Tag Compliance Policy
+# Regal: Comprehensions — Tag Compliance Policy
 
 Write a Rego policy in the package `terraform.compliance` that validates a Terraform resource's tags. The policy should:
 

@@ -1,4 +1,4 @@
-# Multi-Package Policy: JWT Authorization with Helper Library
+# Regal: Import Conventions — JWT Authorization with Helper Library
 
 Write two Rego files:
 

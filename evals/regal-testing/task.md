@@ -1,4 +1,4 @@
-# HTTP API: Authorization Policy with Tests
+# Regal: Testing Style — Authorization Policy with Tests
 
 Write a Rego policy in the package `api.authz` that allows access based on role:
 - `"admin"` role → allow all methods
