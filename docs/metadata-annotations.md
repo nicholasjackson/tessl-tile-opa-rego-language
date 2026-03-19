@@ -339,6 +339,55 @@ report := {
 - Use metadata to build structured violation objects with severity, category, and context
 - Enables consistent reporting format without hardcoding metadata in rule bodies
 
+**Testing**: Because `rego.metadata.rule()` reads annotations baked into the policy source, tests do not need to mock the metadata — they only need to mock `input`. Assert on the structured fields (`severity`, `message`) returned in each violation:
+
+```rego
+# security_reporter_test.rego
+package security.reporter_test
+
+import rego.v1
+import data.security.reporter  # import the policy package under test
+
+# Privileged container → one HIGH violation
+test_privileged_container_violation if {
+    result := reporter.violations with input as {
+        "request": {
+            "kind": {"kind": "Pod"},
+            "object": {
+                "metadata": {"name": "my-pod"},
+                "spec": {
+                    "containers": [
+                        {"name": "app", "securityContext": {"privileged": true}, "resources": {"limits": {"cpu": "100m", "memory": "128Mi"}}}
+                    ]
+                }
+            }
+        }
+    }
+    count(result) == 1
+    some v in result
+    v.severity == "HIGH"
+    contains(v.message, "app")
+}
+
+# Non-privileged container with limits → no violations
+test_compliant_container_allowed if {
+    result := reporter.violations with input as {
+        "request": {
+            "kind": {"kind": "Pod"},
+            "object": {
+                "metadata": {"name": "my-pod"},
+                "spec": {
+                    "containers": [
+                        {"name": "app", "securityContext": {"privileged": false}, "resources": {"limits": {"cpu": "100m", "memory": "128Mi"}}}
+                    ]
+                }
+            }
+        }
+    }
+    count(result) == 0
+}
+```
+
 ---
 
 ## 6. Related Resources and Authors

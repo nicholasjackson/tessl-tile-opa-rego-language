@@ -27,3 +27,5 @@ The violation output must be a structured object (not a plain string) containing
 - Deny privileged containers
 - The violation must be a structured object: `{"severity": "HIGH", "message": "..."}`
 - The severity value comes from the rule's own `# METADATA` annotation (`custom.severity: HIGH`), accessed via `rego.metadata.rule()` at runtime — not hardcoded
+
+Also write a `_test.rego` file that tests the policy with both a passing case and a failing case.

@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent writes a _test.rego file alongside a Kubernetes admission policy, using the correct OPA test conventions: _test.rego filename suffix, _test package suffix, test_ function prefix, both positive and negative test cases, and passing tests.",
+  "checklist": [
+    {
+      "name": "_test.rego filename suffix",
+      "description": "The test file is named with a `_test.rego` suffix (e.g. `admission_test.rego`) per the Regal file-missing-test-suffix convention, and the package ends in `_test` (e.g. `package kubernetes.admission_test`)",
+      "max_score": 25
+    },
+    {
+      "name": "test_ function prefix",
+      "description": "All test functions are prefixed with `test_` (e.g. `test_pod_with_limits_allowed`, `test_pod_missing_limits_denied`)",
+      "max_score": 25
+    },
+    {
+      "name": "positive and negative test cases",
+      "description": "Tests cover both the passing case (all containers have resource limits → deny is empty) and the failing case (a container missing limits → deny contains a message), using `with input as` to inject mock pod input",
+      "max_score": 25
+    },
+    {
+      "name": "tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

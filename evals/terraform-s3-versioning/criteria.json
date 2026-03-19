@@ -5,17 +5,22 @@
     {
       "name": "Checks create and update actions",
       "description": "The deny rules check for both `create` and `update` actions, not just `create`",
-      "max_score": 16
+      "max_score": 12
     },
     {
       "name": "Deny on aws_s3_bucket without versioning enabled",
       "description": "A deny rule triggers when an `aws_s3_bucket` is created or updated and the inline `versioning` block is absent or has `enabled != true`. A helper rule (e.g. `has_versioning_enabled`) is used to check the versioning block.",
-      "max_score": 42
+      "max_score": 32
     },
     {
       "name": "Deny on separate versioning resource with wrong status",
       "description": "A deny rule triggers when an `aws_s3_bucket_versioning` resource is created or updated and `versioning_configuration[_].status != \"Enabled\"`",
-      "max_score": 42
+      "max_score": 31
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
     }
   ]
 }

@@ -5,17 +5,22 @@
     {
       "name": "Deny on aws_s3_bucket without inline encryption",
       "description": "A deny rule triggers when an `aws_s3_bucket` is being created and `r.change.after.server_side_encryption_configuration` is absent or falsy",
-      "max_score": 34
+      "max_score": 26
     },
     {
       "name": "Deny on separate encryption resource with invalid algorithm",
       "description": "A deny rule triggers when an `aws_s3_bucket_server_side_encryption_configuration` resource is created with an `sse_algorithm` that is not `\"AES256\"` or `\"aws:kms\"`",
-      "max_score": 42
+      "max_score": 32
     },
     {
       "name": "Helper function for algorithm validation",
       "description": "The policy extracts the algorithm validation logic into a named helper function or rule (e.g. `encryption_algorithm_valid`) that iterates over the nested rule/encryption blocks",
-      "max_score": 24
+      "max_score": 17
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
     }
   ]
 }

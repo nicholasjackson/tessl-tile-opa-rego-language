@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent writes a _test.rego file alongside an access control policy, using the correct OPA test conventions: _test.rego filename suffix, _test package suffix, test_ function prefix, both positive and negative test cases, and passing tests.",
+  "checklist": [
+    {
+      "name": "_test.rego filename suffix",
+      "description": "The test file is named with a `_test.rego` suffix (e.g. `authz_test.rego`) per the Regal file-missing-test-suffix convention, and the package ends in `_test` (e.g. `package rbac.authz_test`)",
+      "max_score": 25
+    },
+    {
+      "name": "test_ function prefix",
+      "description": "All test functions are prefixed with `test_` (e.g. `test_admin_allowed`, `test_viewer_denied`)",
+      "max_score": 25
+    },
+    {
+      "name": "positive and negative test cases",
+      "description": "Tests cover both the passing case (user has required role → allow is true) and the failing case (user lacks required role → allow is false), using `with input as` to inject mock input and `with data.role_permissions as` to inject mock data",
+      "max_score": 25
+    },
+    {
+      "name": "tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

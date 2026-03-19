@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent uses `default rule := value` correctly: fallback declared at the top of the rule group (trailing-default-rule), not using else branches (default-over-else), and not using negation to set false (default-over-not).",
+  "checklist": [
+    {
+      "name": "default declaration at the top",
+      "description": "The `default max_requests := 10` (or equivalent fallback) appears before the conditional rule overrides, not after them",
+      "max_score": 35
+    },
+    {
+      "name": "Conditional overrides for each tier",
+      "description": "Separate conditional rules override the default for `standard` (100) and `premium` (1000) tiers, using `if data.user_tiers[input.user_id] == \"...\"` or equivalent",
+      "max_score": 25
+    },
+    {
+      "name": "No else branches for fallback",
+      "description": "The fallback value is expressed as `default rule := value`, not as an `else` clause on a conditional rule",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

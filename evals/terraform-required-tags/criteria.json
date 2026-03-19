@@ -5,22 +5,27 @@
     {
       "name": "action != delete exclusion pattern",
       "description": "The deny rules filter using `action != \"delete\"` (iterating over actions and excluding deletes) rather than only checking for create/update, so that no-op and read actions are also correctly handled",
-      "max_score": 31
+      "max_score": 23
     },
     {
       "name": "supports_tags helper",
       "description": "A `supports_tags` (or equivalent) helper rule limits tag checking to the specified taggable resource types using set membership",
-      "max_score": 23
+      "max_score": 17
     },
     {
       "name": "Safe tag access with object.get",
       "description": "Tags are accessed via `object.get(r.change.after, \"tags\", {})` (or equivalent) so that resources with no tags block defined do not cause undefined errors",
-      "max_score": 23
+      "max_score": 17
     },
     {
       "name": "Deny for missing and empty tags",
       "description": "There are two deny rules: one for missing required tags (tag key absent) and one for empty tag values (tag key present but value is empty string)",
-      "max_score": 23
+      "max_score": 18
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
     }
   ]
 }

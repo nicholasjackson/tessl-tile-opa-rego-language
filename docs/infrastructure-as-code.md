@@ -21,6 +21,40 @@ Infrastructure as Code validation with OPA enables:
 
 **Never run `terraform plan` or `terraform apply` to test policies.** Rego policies MUST be tested exclusively using `opa test`. Do NOT run `terraform plan`, `terraform apply`, or any Terraform commands to validate policy logic. Terraform operations are slow, require real infrastructure configuration, and do not provide the fine-grained test coverage that `opa test` offers. If you need to test a policy against a Terraform plan, create a mock plan JSON input in your `_test.rego` file and use the `with` keyword to inject it.
 
+**Test file structure — name the file `policy_test.rego`.** Per the Regal [file-missing-test-suffix](https://www.openpolicyagent.org/projects/regal/rules/testing/file-missing-test-suffix) rule, test files must use the `_test.rego` filename suffix (e.g. `terraform_test.rego` alongside `terraform.rego`). The package should end in `_test` (e.g. `package terraform.analysis_test`). Use `with input as` to inject mock Terraform plan JSON. Include both a passing case (compliant resource, deny is empty) and a failing case (non-compliant resource, deny contains a message):
+
+```rego
+# terraform_test.rego
+package terraform.analysis_test
+
+import rego.v1
+import data.terraform.analysis  # import the policy package under test
+
+# Passing case: compliant resource → deny must be empty
+test_compliant_bucket_allowed if {
+    count(analysis.deny) == 0 with input as {"resource_changes": [{
+        "type": "aws_s3_bucket",
+        "address": "aws_s3_bucket.good",
+        "change": {
+            "actions": ["create"],
+            "after": {"bucket_prefix": "my-prefix"}
+        }
+    }]}
+}
+
+# Failing case: non-compliant resource → deny must contain a message
+test_missing_prefix_denied if {
+    count(analysis.deny) == 1 with input as {"resource_changes": [{
+        "type": "aws_s3_bucket",
+        "address": "aws_s3_bucket.bad",
+        "change": {
+            "actions": ["create"],
+            "after": {}
+        }
+    }]}
+}
+```
+
 **Always check both `create` and `update` actions.** When writing policies that validate resource configuration (e.g., encryption, tags, security settings), always check for both `"create"` and `"update"` actions. A resource that passes validation at creation time can later be modified to a non-compliant state. Use the pattern: `some action in r.change.actions; action in {"create", "update"}`. Only omit `"update"` when the policy is specifically about initial resource creation (e.g., naming conventions that cannot change after creation).
 
 **Do not check for `delete` actions unless the policy specifically prevents resource deletion.** Most policies validate resource configuration (encryption, tags, security settings) which is irrelevant when a resource is being destroyed. Only include `"delete"` in the action check when the policy is intended to prevent a resource from being deleted (e.g., protecting critical infrastructure from accidental removal).

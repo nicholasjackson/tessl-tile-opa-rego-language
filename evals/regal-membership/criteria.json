@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent uses the `in` operator for membership checks (use-in-operator Regal rule) rather than iterating with `x := collection[_]` and comparing.",
+  "checklist": [
+    {
+      "name": "Uses `in` operator for membership check",
+      "description": "The policy checks department membership using `dept in allowed_departments` (or equivalent `in` form) — not `dept == allowed_departments[_]` or `allowed_departments[_] == dept`",
+      "max_score": 40
+    },
+    {
+      "name": "Looks up allowed departments from data",
+      "description": "The allowed departments for a path are read from `data.endpoint_access[input.path]` (or equivalent data lookup)",
+      "max_score": 20
+    },
+    {
+      "name": "import rego.v1 and default allow := false",
+      "description": "The policy includes `import rego.v1` and `default allow := false`",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

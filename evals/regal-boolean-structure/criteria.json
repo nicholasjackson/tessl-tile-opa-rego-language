@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent uses incremental set rules (`violations contains msg if`) rather than comprehensions assigned to a top-level variable, and uses a boolean `allow` rule (not `allow := true`).",
+  "checklist": [
+    {
+      "name": "Incremental violations set using `contains`",
+      "description": "Violations are collected with `violations contains msg if { ... }` — not with a comprehension `violations := {msg | ...}` assigned to a variable",
+      "max_score": 40
+    },
+    {
+      "name": "Boolean allow rule referencing violations",
+      "description": "`allow` is a boolean rule (`allow if count(violations) == 0`) — not assigned as `allow := true`",
+      "max_score": 20
+    },
+    {
+      "name": "Checks for privileged and missing limits",
+      "description": "Separate violation rules for privileged containers and containers missing resource limits",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

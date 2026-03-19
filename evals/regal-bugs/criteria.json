@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent avoids common Rego bugs: uses `x in collection` (not `x != collection[_]`) for negative membership, and uses sprintf with matching argument counts.",
+  "checklist": [
+    {
+      "name": "Uses `in` for membership check (not `!=` in a loop)",
+      "description": "Restricted name check uses `input.metadata.name in data.restricted_names` — not `some name in data.restricted_names; name != input.metadata.name` which is a not-equals-in-loop bug",
+      "max_score": 40
+    },
+    {
+      "name": "sprintf argument count matches format string",
+      "description": "All `sprintf` calls have the same number of `%v`/`%s` verbs as arguments in the array",
+      "max_score": 20
+    },
+    {
+      "name": "Checks for restricted name and missing annotation",
+      "description": "Separate deny rules for restricted namespace names and missing `owner` annotation",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

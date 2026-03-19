@@ -3,8 +3,8 @@
   "context": "Evaluates whether the agent writes a _test.rego file alongside an IaC policy, using the correct OPA test conventions: _test package suffix, with input as mocking with realistic Terraform plan JSON, both positive and negative test cases, and passing tests. These testing criteria are extracted here so they are not duplicated across every individual IaC scenario.",
   "checklist": [
     {
-      "name": "_test package suffix",
-      "description": "The test file declares a package with the `_test` suffix (e.g. `package terraform.analysis_test`) and imports the policy under test",
+      "name": "_test.rego filename suffix",
+      "description": "The test file is named with a `_test.rego` suffix (e.g. `terraform_test.rego`) per the Regal file-missing-test-suffix convention, and the package ends in `_test` (e.g. `package terraform.analysis_test`)",
       "max_score": 25
     },
     {

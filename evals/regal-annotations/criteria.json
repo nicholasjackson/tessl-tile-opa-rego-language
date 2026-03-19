@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent adds proper metadata annotations: package annotation, rule annotations with entrypoint, and annotations placed immediately above the rule with no blank lines.",
+  "checklist": [
+    {
+      "name": "Package-level metadata annotation",
+      "description": "The module has a `# METADATA` block before the `package` declaration with at least `title` and `description` fields",
+      "max_score": 25
+    },
+    {
+      "name": "`allow` rule annotated with `entrypoint: true`",
+      "description": "The `allow` rule (or `default allow`) has a `# METADATA` block with `entrypoint: true` to mark it as the policy entrypoint",
+      "max_score": 30
+    },
+    {
+      "name": "No blank lines between metadata and rule",
+      "description": "Each `# METADATA` block is immediately followed by the rule it annotates — no blank lines between the metadata comment and the rule declaration",
+      "max_score": 20
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

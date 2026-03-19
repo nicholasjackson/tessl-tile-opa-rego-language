@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether helper functions take explicit arguments rather than referencing `input` or `data` directly inside the function body (external-reference Regal rule).",
+  "checklist": [
+    {
+      "name": "Helper functions take explicit container argument",
+      "description": "Helper functions (e.g. `is_privileged`, `has_resource_limits`) take the container as an explicit argument and do not reference `input` or `data` inside the function body",
+      "max_score": 40
+    },
+    {
+      "name": "Separate helpers for privileged and resource limit checks",
+      "description": "There are distinct named helper functions or rules for the privileged check and the resource limits check — not all logic inlined in the deny rule",
+      "max_score": 20
+    },
+    {
+      "name": "deny contains msg pattern with container name",
+      "description": "Deny rules use `deny contains msg if { ... }` and include the container name in the message via `sprintf`",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

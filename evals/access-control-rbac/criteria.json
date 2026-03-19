@@ -34,7 +34,7 @@
     },
     {
       "name": "Tests pass",
-      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "description": "All tests pass when running `opa test . -v`",
       "max_score": 10
     }
   ]

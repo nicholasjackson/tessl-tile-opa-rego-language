@@ -132,6 +132,34 @@ total_cost_by_team[team] := total if {
 }
 ```
 
+## Testing Policies
+
+All Rego policies must be tested with `opa test`. Per the Regal [file-missing-test-suffix](https://www.openpolicyagent.org/projects/regal/rules/testing/file-missing-test-suffix) rule, test files must be named with a `_test.rego` suffix (e.g. `policy_test.rego` alongside `policy.rego`). Use `with input as` to inject mock input and `with data.x as` to inject mock data.
+
+```rego
+# policy_test.rego
+package example.authz_test
+
+import rego.v1
+import data.example.authz  # import the policy package under test
+
+# Passing case: compliant input → allow must be true
+test_allowed if {
+    authz.allow with input as {"user": "alice", "method": "GET"}
+               with data.roles as {"alice": ["viewer"]}
+}
+
+# Failing case: non-compliant input → allow must be false
+test_denied if {
+    not authz.allow with input as {"user": "bob", "method": "DELETE"}
+                   with data.roles as {"bob": ["viewer"]}
+}
+```
+
+The `_test.rego` filename suffix is required by the Regal [file-missing-test-suffix](https://www.openpolicyagent.org/projects/regal/rules/testing/file-missing-test-suffix) rule. The package mirrors the policy with a `_test` suffix (e.g. `package example.authz_test`), enforced by [test-outside-test-package](https://www.openpolicyagent.org/projects/regal/rules/testing/test-outside-test-package). Because the test is in a **different package**, rules from the policy are not in scope — you must import the policy package (`import data.example.authz`) and reference rules via the alias (`authz.allow`). Using just `allow` in a `_test` package will fail.
+
+---
+
 ## Capabilities
 
 This Knowledge Tile covers five major themes for using Rego in production environments. Each theme includes detailed examples, best practices, and real-world use cases.
@@ -166,6 +194,14 @@ Implement fine-grained authorization for REST APIs based on user context, roles,
 
 [View detailed HTTP API authorization examples →](http-api-authorization.md)
 
+**Request Body Validation**: Validates POST request bodies using set subtraction to detect unknown fields and explicit iteration for required fields.
+
+[View request body validation examples →](http-api-body-validation.md)
+
+**Rate Limiting**: Enforces per-user rate limits using `default rule := value` for tier-based fallbacks.
+
+[View rate limiting examples →](http-api-rate-limiting.md)
+
 ---
 
 ### 4. Access Control Models
@@ -185,6 +221,24 @@ Document and categorize policies using OPA's built-in metadata annotation system
 **Use Cases:** Policy cataloging, entrypoint discovery, schema validation, severity classification, compliance framework tagging, documentation generation.
 
 [View detailed metadata annotation examples →](metadata-annotations.md)
+
+---
+
+### 6. Regal Linter Compliance
+
+Write Rego policies that pass the [Regal linter](https://www.openpolicyagent.org/projects/regal/rules) from the start. The following focused guides cover common Regal rule categories:
+
+- **Naming conventions** (`prefer-snake-case`, `avoid-get-and-list-prefix`, `rule-name-repeats-package`) → [regal-naming-conventions.md](regal-naming-conventions.md)
+- **Iteration style** (`prefer-some-in-iteration`, `mixed-iteration`) → [regal-iteration-style.md](regal-iteration-style.md)
+- **Membership operators** (`use-in-operator`) → [regal-membership-operators.md](regal-membership-operators.md)
+- **Function style** (`external-reference`, `zero-arity-function`) → [regal-function-style.md](regal-function-style.md)
+- **Default rules** (`trailing-default-rule`, `default-over-else`) → [regal-defaults.md](regal-defaults.md)
+- **Boolean and rule structure** (`prefer-set-or-object-rule`, `boolean-assignment`) → [regal-boolean-structure.md](regal-boolean-structure.md)
+- **Comprehension patterns** (`object.keys`, `comprehension-term-assignment`) → [regal-comprehensions.md](regal-comprehensions.md)
+- **Bug avoidance** (`not-equals-in-loop`, `sprintf-arguments-mismatch`) → [regal-bugs.md](regal-bugs.md)
+- **Testing style** (`file-missing-test-suffix`, `test-outside-test-package`) → [regal-testing-style.md](regal-testing-style.md)
+- **Import conventions** (`prefer-package-imports`, `redundant-alias`) → [regal-imports.md](regal-imports.md)
+- **Annotations** (`missing-metadata`, `detached-metadata`, `no-defined-entrypoint`) → [regal-annotations.md](regal-annotations.md)
 
 ## Additional Resources
 

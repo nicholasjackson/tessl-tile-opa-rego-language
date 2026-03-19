@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent uses `some x in collection` for iteration (prefer-some-in-iteration Regal rule) rather than the old bracket notation `x := collection[_]`.",
+  "checklist": [
+    {
+      "name": "Uses `some ... in` for iteration",
+      "description": "The policy iterates over containers using `some container in ...containers` (or equivalent `some x in` form) — not `container := ...containers[_]` or `containers[_]` bare bracket notation",
+      "max_score": 40
+    },
+    {
+      "name": "Checks each container image against approved registry",
+      "description": "The deny rule checks each container's image starts with `registry.example.com/` using `startswith` or string prefix matching",
+      "max_score": 20
+    },
+    {
+      "name": "deny contains msg pattern",
+      "description": "The policy uses `deny contains msg if { ... }` to collect violations, including the container name and image in the message",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

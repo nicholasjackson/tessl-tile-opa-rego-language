@@ -5,12 +5,17 @@
     {
       "name": "import rego.v1",
       "description": "The policy uses `import rego.v1` (not `import future.keywords` or no import at all)",
-      "max_score": 50
+      "max_score": 37
     },
     {
       "name": "object.get input normalization",
       "description": "The policy defines `tfplan := object.get(input, \"plan\", input)` as a package-level rule and uses `tfplan.resource_changes` throughout — never `input.resource_changes` directly. This ensures the policy works with both raw Terraform and HCP Terraform/Enterprise input structures.",
-      "max_score": 50
+      "max_score": 38
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
     }
   ]
 }

@@ -14,6 +14,13 @@
     "doc_section": "2. RBAC with Separation of Duty"
   },
   {
+    "scenario": "access-control-common-testing",
+    "title": "Access Control: Common Testing Pattern",
+    "capability": "policy-testing",
+    "doc": "docs/index.md",
+    "doc_section": "Testing Policies"
+  },
+  {
     "scenario": "http-api-authorization",
     "title": "HTTP API: Authorization Policy",
     "capability": "http-api-authorization",
@@ -22,17 +29,24 @@
   },
   {
     "scenario": "http-api-rate-limiting",
-    "title": "HTTP API: Rate Limiting with else :=",
-    "capability": "http-api-authorization",
-    "doc": "docs/http-api-authorization.md",
-    "doc_section": "7. Rate Limiting Policies per User/IP"
+    "title": "HTTP API: Rate Limiting with default Function Fallback",
+    "capability": "http-api-rate-limiting",
+    "doc": "docs/http-api-rate-limiting.md",
+    "doc_section": null
   },
   {
     "scenario": "http-api-body-validation",
     "title": "HTTP API: Request Body Field Validation",
-    "capability": "http-api-authorization",
-    "doc": "docs/http-api-authorization.md",
-    "doc_section": "10. Request Body Validation"
+    "capability": "http-api-body-validation",
+    "doc": "docs/http-api-body-validation.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "http-api-common-testing",
+    "title": "HTTP API: Common Testing Pattern",
+    "capability": "policy-testing",
+    "doc": "docs/index.md",
+    "doc_section": "Testing Policies"
   },
   {
     "scenario": "kubernetes-admission-policy",
@@ -47,6 +61,13 @@
     "capability": "kubernetes-gatekeeper",
     "doc": "docs/kubernetes-admission-control.md",
     "doc_section": null
+  },
+  {
+    "scenario": "kubernetes-common-testing",
+    "title": "Kubernetes: Common Testing Pattern",
+    "capability": "policy-testing",
+    "doc": "docs/index.md",
+    "doc_section": "Testing Policies"
   },
   {
     "scenario": "metadata-annotations",
@@ -73,8 +94,8 @@
     "scenario": "terraform-common-testing",
     "title": "Terraform: Common Testing Pattern",
     "capability": "policy-testing",
-    "doc": null,
-    "doc_section": null
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "IMPORTANT: Testing IaC Policies"
   },
   {
     "scenario": "terraform-s3-encryption",
@@ -117,5 +138,82 @@
     "capability": "terraform-iac-validation",
     "doc": "docs/infrastructure-as-code.md",
     "doc_section": "5. MULTI-REGION DEPLOYMENT POLICIES"
+  },
+  {
+    "scenario": "regal-naming",
+    "title": "Regal: Naming Conventions (snake_case, no get_/list_ prefix)",
+    "capability": "regal-naming-conventions",
+    "doc": "docs/regal-naming-conventions.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-iteration",
+    "title": "Regal: Iteration Style (some x in collection)",
+    "capability": "regal-iteration-style",
+    "doc": "docs/regal-iteration-style.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-membership",
+    "title": "Regal: Membership Operators (use-in-operator)",
+    "capability": "regal-membership-operators",
+    "doc": "docs/regal-membership-operators.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-functions",
+    "title": "Regal: Function Style (external-reference, explicit args)",
+    "capability": "regal-function-style",
+    "doc": "docs/regal-function-style.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-defaults",
+    "title": "Regal: Default Rule Values (trailing-default-rule, default-over-else)",
+    "capability": "regal-defaults",
+    "doc": "docs/regal-defaults.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-boolean-structure",
+    "title": "Regal: Boolean Rules and Incremental Sets (prefer-set-or-object-rule)",
+    "capability": "regal-boolean-structure",
+    "doc": "docs/regal-boolean-structure.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-comprehensions",
+    "title": "Regal: Comprehension Patterns (object.keys, comprehension-term-assignment)",
+    "capability": "regal-comprehensions",
+    "doc": "docs/regal-comprehensions.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-bugs",
+    "title": "Regal: Common Bug Patterns (not-equals-in-loop, sprintf-arguments-mismatch)",
+    "capability": "regal-bugs",
+    "doc": "docs/regal-bugs.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-testing",
+    "title": "Regal: Testing Style (file-missing-test-suffix, test-outside-test-package)",
+    "capability": "regal-testing-style",
+    "doc": "docs/regal-testing-style.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-imports",
+    "title": "Regal: Import Conventions (prefer-package-imports, redundant-alias)",
+    "capability": "regal-imports",
+    "doc": "docs/regal-imports.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "regal-annotations",
+    "title": "Regal: Policy Annotations (missing-metadata, detached-metadata, entrypoint)",
+    "capability": "regal-annotations",
+    "doc": "docs/regal-annotations.md",
+    "doc_section": null
   }
 ]

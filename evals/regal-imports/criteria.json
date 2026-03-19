@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent imports the package (not individual rules), avoids redundant aliases, and places all imports before any rules.",
+  "checklist": [
+    {
+      "name": "Imports the package, not individual rules",
+      "description": "The authz policy uses `import data.lib.jwt` and calls `jwt.decode_claims(...)` — not `import data.lib.jwt.decode_claims` (which imports an individual rule)",
+      "max_score": 40
+    },
+    {
+      "name": "No redundant aliases",
+      "description": "The import does not alias the package to the same name it already has (e.g. not `import data.lib.jwt as jwt`)",
+      "max_score": 20
+    },
+    {
+      "name": "All imports before rules",
+      "description": "All `import` statements appear at the top of the file, before any `default` or rule declarations",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

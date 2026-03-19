@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent follows Regal naming conventions: snake_case identifiers (prefer-snake-case), no get_/list_ prefixes (avoid-get-and-list-prefix), and no repetition of the package path in rule names (rule-name-repeats-package).",
+  "checklist": [
+    {
+      "name": "snake_case for all identifiers",
+      "description": "All rule names, function names, and variable names use snake_case — no camelCase (e.g. `userRole`, `isAdmin`) or PascalCase",
+      "max_score": 35
+    },
+    {
+      "name": "No get_ or list_ prefix on rule names",
+      "description": "No rule or function is named with a `get_` or `list_` prefix (e.g. `get_user_role`, `list_permissions`) — the value itself is the rule name",
+      "max_score": 30
+    },
+    {
+      "name": "No package path repetition in rule names",
+      "description": "Rules do not repeat the package path — in `rbac.authz`, the allow rule is named `allow` not `rbac_authz_allow` or `authz_allow`",
+      "max_score": 10
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

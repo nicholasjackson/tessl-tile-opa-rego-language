@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent uses `object.keys()` to get tag keys rather than a comprehension `{k | some k in obj}`, and uses set subtraction to find missing tags.",
+  "checklist": [
+    {
+      "name": "Uses `object.keys()` for provided tags",
+      "description": "Provided tag keys are obtained with `object.keys(input.resource.tags)` — not with a comprehension like `{k | some k in input.resource.tags}`",
+      "max_score": 40
+    },
+    {
+      "name": "Set subtraction for missing tags",
+      "description": "Missing tags are computed with `required_tags - provided_tags` (set subtraction), not iteration",
+      "max_score": 20
+    },
+    {
+      "name": "deny contains msg with sprintf",
+      "description": "Violation uses `deny contains msg if { ... }` with `sprintf` listing the missing tags",
+      "max_score": 15
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

@@ -1,206 +1,265 @@
-# Rego Language Best Practices and Patterns
+# Rego Language Rules and Patterns
 
-This document captures high-level patterns and conventions for writing effective Rego policies. These are construct patterns and architectural best practices, not syntax formatting rules.
+All rules in this document MUST be followed when generating or modifying Rego policy code.
+
+---
 
 ## Mandatory Requirements
 
-These rules MUST be followed whenever generating or modifying Rego policy code. They are not optional.
+- **Write tests before implementing policies (TDD)**: Create the `_test.rego` file with test cases BEFORE writing the policy. Run `opa test` to confirm tests fail, then implement the policy until all tests pass. Every `.rego` file must have a corresponding `_test.rego` — a policy without tests is incomplete.
 
-- **Write tests first, then implement policies (TDD)**: When creating or modifying a `.rego` policy file, you MUST write the `_test.rego` file BEFORE writing the policy implementation. Follow this workflow:
-  1. Create the `_test.rego` file with test cases that define the expected behavior
-  2. Run `opa test` to confirm the tests fail (they should, since the policy doesn't exist yet)
-  3. Write the policy implementation in the `.rego` file
-  4. Run `opa test` again to confirm all tests pass
-  5. Iterate until all tests pass
+- **Never run Terraform commands**: Do NOT run `terraform plan`, `terraform apply`, `terraform init`, or any other Terraform CLI command. Create mock plan JSON inline in `_test.rego` using the `with` keyword, or ask the user to provide plan output.
 
-  The test file must:
-  - Use the `_test` package suffix (e.g., `package mypackage_test`)
-  - Include `import rego.v1`
-  - Test both positive cases (policy allows/passes) and negative cases (policy denies/fails)
-  - Validate the exact error messages returned by deny/violation rules
-  - Use the `with` keyword to mock `input` and `data`
-  - Cover edge cases such as missing fields, empty inputs, and boundary values
-  - Follow the naming convention `test_<rule_name>_<scenario>`
+- **Use `import rego.v1`**: Always include `import rego.v1` to opt in to v1 syntax (`if`, `contains`, `in`, `every` keywords). Never use `import future.keywords` — it is deprecated and cannot be combined with `import rego.v1`. Enforced by Regal [use-rego-v1](https://www.openpolicyagent.org/projects/regal/rules/imports/use-rego-v1).
 
-  **Do NOT substitute manual testing (e.g., `opa eval`, `opa exec`) for unit tests.** Manual evaluation may be used for debugging, but every policy MUST have a `_test.rego` file with comprehensive unit tests that can be run with `opa test`.
+- **Never import `input`**: Keep `input` references explicit (e.g., `input.resource.tags`). For Terraform IaC policies, never use `import input as tfplan` — normalise with `tfplan := object.get(input, "plan", input)` instead. Enforced by Regal [avoid-importing-input](https://www.openpolicyagent.org/projects/regal/rules/imports/avoid-importing-input).
 
-- **Never run Terraform commands automatically**: Do NOT run `terraform plan`, `terraform apply`, `terraform init`, or any other Terraform CLI command. Terraform operations require real credentials and infrastructure configuration, can have unintended side effects, and are outside the scope of Rego policy authoring. If you need a plan JSON to write or test a policy, either create a mock plan JSON inline in the `_test.rego` file using the `with` keyword, or ask the user to run `terraform plan -out=tfplan.binary && terraform show -json tfplan.binary > plan.json` and provide the output.
+---
 
-- **Never import input directly**: Always keep `input` references explicit (e.g., `input.resource.tags`) rather than importing input or individual input fields. This maintains a clear distinction between external input data and local variables, making policies easier to audit and debug. Note: `input` and `data` are reserved names in OPA 1.0 and cannot be used as rule or variable names. For Terraform IaC policies, never use `import input as tfplan` — always normalise with `tfplan := object.get(input, "plan", input)` so the policy works with both raw Terraform and HCP Terraform/Enterprise input structures.
+## Metadata Annotations
 
-## Structural Patterns
+Every package and every entrypoint rule MUST have a `# METADATA` annotation block. The block must be placed **immediately before** the target with no intervening lines — Regal [detached-metadata](https://www.openpolicyagent.org/projects/regal/rules/bugs/detached-metadata) flags any gap. Regal [missing-metadata](https://www.openpolicyagent.org/projects/regal/rules/custom/missing-metadata) flags packages or rules without annotations, and [no-defined-entrypoint](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/no-defined-entrypoint) flags policies with no entrypoint rule.
 
-- **Match package name to file location**: Package names should reflect directory structure. Use consistent convention throughout project (e.g., `foo/bar.rego` → `package foo.bar`).
+**Package-level annotation** (place before `package` declaration):
+```rego
+# METADATA
+# title: My Policy
+# description: What this policy enforces
+# authors:
+# - Team Name <team@example.com>
+# custom:
+#   category: kubernetes-admission
+package my.policy
 
-- **Use lowercase dot notation for package hierarchy**: Follow pattern `organization.domain.purpose` (e.g., `kubernetes.admission`, `rbac.authz`, `terraform.analysis`).
+import rego.v1
+```
 
-- **Separate concerns by package**: Keep related rules in same package. Use separate packages for different policy domains to enable team collaboration through clear boundaries.
+**Rule-level annotation** (place immediately before the rule):
+```rego
+# METADATA
+# title: Allow compliant requests
+# description: Permits requests that pass all validation checks
+# entrypoint: true
+# custom:
+#   severity: HIGH
+allow if {
+    count(deny) == 0
+}
+```
 
-- **Standard module layout**: Organize modules consistently:
-  1. METADATA annotations at package level
-  2. Package declaration
-  3. Imports
-  4. Constants and configuration
-  5. Helper rules and functions
-  6. Main policy rules
+**Required fields for entrypoint rules**: `title`, `description`, `entrypoint: true`, `custom.severity` (HIGH, MEDIUM, or LOW). Enforced by Regal [invalid-metadata-attribute](https://www.openpolicyagent.org/projects/regal/rules/bugs/invalid-metadata-attribute) and [annotation-without-metadata](https://www.openpolicyagent.org/projects/regal/rules/bugs/annotation-without-metadata).
 
-- **Mark main decision rules with entrypoint — except for Conftest policies**: Use `# METADATA` with `entrypoint: true` on rules that are queried directly by external systems (admission controllers, OPA REST API, governance tooling). This enables `opa inspect -a` auto-discovery and `opa build` compilation. **Do NOT add `entrypoint: true` to policies evaluated by Conftest** — Conftest queries rules by naming convention (`deny`, `warn`, `violation`) and does not use OPA's entrypoint mechanism. Adding `entrypoint: true` to a Conftest rule changes its default scope to `document`, which may produce unexpected behavior in multi-file packages.
+**Do NOT add `entrypoint: true` to Conftest policies** — Conftest queries rules by naming convention (`deny`, `warn`, `violation`) and does not use OPA's entrypoint mechanism.
 
-- **Co-locate tests with policies**: Place test files in same directory as policy files. Use `_test.rego` suffix and `package_name_test` for test package names.
+**Runtime access**: Use `rego.metadata.rule()` to read a rule's own annotation at evaluation time (e.g., for severity-aware error formatting). No mocking needed — the metadata is baked into the policy source.
 
-- **Write tests for every policy**: Every `.rego` policy file must have a corresponding `_test.rego` file. Tests should cover both allow and deny cases, validate error messages, and exercise edge cases. A policy without tests is incomplete—treat test creation as a mandatory part of policy development, not an optional follow-up.
+```rego
+violation contains msg if {
+    # ... violation logic ...
+    meta := rego.metadata.rule()
+    msg := {"message": "...", "severity": meta.custom.severity}
+}
+```
 
-- **Use `import rego.v1` for backward compatibility**: When policies must work on both OPA 0.x (0.55+) and OPA 1.x, use `import rego.v1` to opt in to v1 syntax. In OPA 1.0+, the `if`, `contains`, `in`, and `every` keywords are part of the language by default and no import is required. **Never** use `import future.keywords` — it is deprecated and cannot be combined with `import rego.v1`.
+**Schema annotations**: Associate JSON schemas with `input` and `data` paths to enable `opa check` structural validation at build time.
 
-## Composition Patterns
+---
 
-- **Prefer multi-value rules over comprehensions**: Use set/object generating rules instead of top-level comprehensions. This enables extensibility—multiple rules can contribute to same result. Better for readability and debuggability.
+## Module Structure
 
-- **Extract repeated conditions into helper rules**: Improves readability, performance (via memoization), and testability. Use descriptive names with `is_` or `has_` prefix for boolean helpers.
+**Standard layout** — organise every module in this order:
+1. `# METADATA` block (package-level)
+2. `package` declaration
+3. `import` statements
+4. `default` declarations (always first, before the rules they apply to)
+5. Constants and configuration
+6. Helper rules and functions
+7. Entrypoint rules
 
-- **Use negation with helper rules for deny-by-default**: Pattern like `deny contains msg if not authenticated_user` handles both undefined and false cases, critical for security policies.
+**Default declarations first**: Declare `default allow := false` and any other defaults at the top of the rules section, before the rule bodies that define when they are true. Regal [trailing-default-rule](https://www.openpolicyagent.org/projects/regal/rules/style/trailing-default-rule) flags defaults that appear after the rules they apply to.
 
-- **Compose logical AND implicitly**: Multiple statements in rule body are implicitly AND'd. Each must succeed for rule to succeed.
+**Imports before rules**: All `import` statements must appear before any rule declarations. Regal [import-after-rule](https://www.openpolicyagent.org/projects/regal/rules/imports/import-after-rule) flags imports that follow rules.
 
-- **Compose logical OR through multiple rule definitions**: Define multiple rules with same head. Any rule succeeding makes overall rule succeed.
+**Package mirrors directory**: `foo/bar/policy.rego` → `package foo.bar.policy`. Regal [directory-package-mismatch](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/directory-package-mismatch) flags mismatches.
 
-- **Use `else` for ordered evaluation**: When first-match semantics needed, earlier conditions take precedence. Use for fallback logic.
+**Separate concerns by package**: Keep related rules in the same package. Use separate packages for different policy domains.
 
-- **Use `every` for universal quantification**: Express "for all" logic clearly instead of double-negation patterns. Example: `every container in containers { condition }`.
+---
 
-- **Prefer pure functions with explicit arguments**: Pass data as arguments rather than referencing `input`/`data` directly. Easier to test standalone, clear dependencies.
+## Naming Conventions
 
-- **Use assignment (`:=`) for function returns**: Avoid last-argument return pattern. Makes return value explicit.
+- **`snake_case` for all identifiers**: Rules, functions, variables, and constants — no camelCase or PascalCase. Regal [prefer-snake-case](https://www.openpolicyagent.org/projects/regal/rules/style/prefer-snake-case).
+- **No `get_` or `list_` prefixes**: These are implied by Rego semantics. Use `user`, not `get_user`. Regal [avoid-get-and-list-prefix](https://www.openpolicyagent.org/projects/regal/rules/style/avoid-get-and-list-prefix).
+- **No package path repetition in rule names**: If the package is `kubernetes.admission`, don't name a rule `kubernetes_admission_deny`. Regal [rule-name-repeats-package](https://www.openpolicyagent.org/projects/regal/rules/style/rule-name-repeats-package).
+- **`is_` or `has_` prefix for boolean helpers**: `is_privileged`, `has_required_labels`.
+- **`_` prefix for internal helpers**: Communicates that a rule is not part of the public API.
+- **Descriptive test names**: Prefix with `test_`, describe what's being tested — `test_deny_privileged_container`.
+- **No metasyntactic variable names**: Avoid `foo`, `bar`, `baz`, `tmp` — use meaningful names. Regal [metasyntactic-variable](https://www.openpolicyagent.org/projects/regal/rules/testing/metasyntactic-variable).
+
+---
+
+## Language Idioms
+
+**Use `if` keyword**: Separates rule head from body. Required with `import rego.v1`. Regal [use-if](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-if).
+
+**Use `contains` for partial set rules**: `deny contains msg if { ... }` not `deny[msg] { ... }`. Regal [use-contains](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-contains).
+
+**Use `in` for membership checks**: `"admin" in input.user.roles` not `"admin" == input.user.roles[_]`. Regal [use-in-operator](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-in-operator).
+
+**Use `some x in collection` for iteration**: Not `x := collection[_]`. Regal [prefer-some-in-iteration](https://www.openpolicyagent.org/projects/regal/rules/style/prefer-some-in-iteration). Don't mix iteration styles in the same rule — Regal [mixed-iteration](https://www.openpolicyagent.org/projects/regal/rules/style/mixed-iteration).
+
+**Declare output variables with `some`**: When a variable is assigned inside a rule body for output (not just local use), declare it with `some`. Regal [use-some-for-output-vars](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-some-for-output-vars).
+
+**Don't use `some` unnecessarily**: `some x in arr` is correct; `some x` alone before `x := value` is unnecessary when `x` is not an output variable. Regal [unnecessary-some](https://www.openpolicyagent.org/projects/regal/rules/style/unnecessary-some).
+
+**`default` over `else`**: Use `default rule := value` for fallback values — the same pattern as `default allow := false`, applied to any rule. Declare the default first, then the specific rule heads. Do not use `else :=`. Regal [default-over-else](https://www.openpolicyagent.org/projects/regal/rules/style/default-over-else).
+
+```rego
+default user_limit := 10                                    # fallback first
+user_limit := 1000 if data.user_tiers[input.user] == "premium"
+user_limit := 100  if data.user_tiers[input.user] == "standard"
+```
+
+**`default` over negation**: Prefer `default allow := false` over `allow if not is_denied`. Regal [default-over-not](https://www.openpolicyagent.org/projects/regal/rules/style/default-over-not).
+
+**Use `every` for universal quantification**: Express "for all" logic clearly instead of double-negation. `every container in spec.containers { not container.securityContext.privileged }`. Regal [double-negative](https://www.openpolicyagent.org/projects/regal/rules/style/double-negative).
+
+**Boolean assignment via `if`**: Write `is_valid if { ... }` not `is_valid := true if { ... }`. Regal [boolean-assignment](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/boolean-assignment).
+
+**Prefer set/object rules over comprehensions**: `violations contains v if { ... }` (multi-value rule) over `violations := { v | ... }` (top-level comprehension) — rules can be extended across files. Regal [prefer-set-or-object-rule](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/prefer-set-or-object-rule).
+
+**Move assignment to comprehension term**: `{v.name | some v in input.items; v.active}` not `{name | some v in input.items; v.active; name := v.name}`. Regal [comprehension-term-assignment](https://www.openpolicyagent.org/projects/regal/rules/style/comprehension-term-assignment).
+
+**Pattern matching in function arguments**: Use `f("foo") := ...` over `f(x) := ... if x == "foo"` when matching on a literal. Regal [equals-pattern-matching](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/equals-pattern-matching).
+
+**Use `object.keys` over manual key extraction**: `object.keys(obj)` not `{k | obj[k]}`. Regal [use-object-keys](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-object-keys).
+
+**Use `array.flatten` and `object.union_n`**: Prefer built-ins over nested `array.concat` or repeated `object.union` calls. Regal [use-array-flatten](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-array-flatten), [use-object-union-n](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-object-union-n).
+
+**Use raw strings for regex**: `` regex.match(`[\d]+`, s) `` not `regex.match("[\\d]+", s)`. Regal [non-raw-regex-pattern](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/non-raw-regex-pattern).
+
+**Prefer `==`/`!=` over `count` for empty checks**: `count(violations) == 0` → `violations == set()`. Regal [equals-over-count](https://www.openpolicyagent.org/projects/regal/rules/performance/equals-over-count).
+
+**No wildcard key with `in`**: `some v in collection` not `some _, v in collection` when the key is unused. Regal [in-wildcard-key](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/in-wildcard-key).
+
+**Avoid single-item `in`**: `input.user == "alice"` not `input.user in {"alice"}`. Regal [single-item-in](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/single-item-in).
+
+**Use `strings.count` where possible**: Prefer `strings.count(s, sub)` over manual counting patterns. Regal [use-strings-count](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/use-strings-count).
+
+---
+
+## Functions
+
+**No external references in functions**: Functions must operate only on their arguments — never reference `input` or `data` directly inside a function body. Pass data as explicit arguments. Regal [external-reference](https://www.openpolicyagent.org/projects/regal/rules/style/external-reference).
+
+```rego
+# Wrong — references input directly
+is_admin := input.user.role == "admin"
+
+# Correct — takes role as argument
+is_admin(role) := role == "admin"
+```
+
+**Functions must have arguments**: Zero-argument functions that return a value should be rules instead. Regal [zero-arity-function](https://www.openpolicyagent.org/projects/regal/rules/bugs/zero-arity-function).
+
+**Don't assign return value in argument**: Use `result := f(x)` not `f(x, result)` (last-argument return pattern). Regal [function-arg-return](https://www.openpolicyagent.org/projects/regal/rules/style/function-arg-return).
+
+**Consistent argument names across function heads**: If a function has multiple heads, argument names must be consistent. Regal [inconsistent-args](https://www.openpolicyagent.org/projects/regal/rules/bugs/inconsistent-args).
+
+**Arguments are not always wildcards**: If every call to a function passes `_` for an argument, the argument serves no purpose — remove it. Regal [argument-always-wildcard](https://www.openpolicyagent.org/projects/regal/rules/bugs/argument-always-wildcard).
+
+---
+
+## Import Rules
+
+- **Import packages, not specific rules**: `import data.my.package` then `package.rule` — not `import data.my.package.rule`. Regal [prefer-package-imports](https://www.openpolicyagent.org/projects/regal/rules/imports/prefer-package-imports).
+- **No circular imports**: Packages must not import each other cyclically. Regal [circular-import](https://www.openpolicyagent.org/projects/regal/rules/imports/circular-import).
+- **No redundant aliases**: `import data.foo as foo` is pointless — omit the alias. Regal [redundant-alias](https://www.openpolicyagent.org/projects/regal/rules/imports/redundant-alias).
+- **No confusing aliases**: Don't alias an import to a name that already exists. Regal [confusing-alias](https://www.openpolicyagent.org/projects/regal/rules/imports/confusing-alias).
+- **No ignored imports**: Don't import something you don't use. Regal [ignored-import](https://www.openpolicyagent.org/projects/regal/rules/imports/ignored-import).
+- **No import shadowing**: Imports must not shadow built-in namespaces or other imports. Regal [import-shadows-builtin](https://www.openpolicyagent.org/projects/regal/rules/imports/import-shadows-builtin), [import-shadows-import](https://www.openpolicyagent.org/projects/regal/rules/imports/import-shadows-import), [import-shadows-rule](https://www.openpolicyagent.org/projects/regal/rules/bugs/import-shadows-rule).
+- **No redundant data import**: `import data` is implicit — never write it. Regal [redundant-data-import](https://www.openpolicyagent.org/projects/regal/rules/imports/redundant-data-import).
+- **No pointless self-import**: A package must not import itself. Regal [pointless-import](https://www.openpolicyagent.org/projects/regal/rules/imports/pointless-import).
+- **All imports must resolve**: Don't import packages that don't exist in the bundle. Regal [unresolved-import](https://www.openpolicyagent.org/projects/regal/rules/imports/unresolved-import), [unresolved-reference](https://www.openpolicyagent.org/projects/regal/rules/imports/unresolved-reference).
+
+---
+
+## Testing
+
+- **`_test.rego` suffix**: Test files must be named `policy_test.rego` (not `policy.test.rego` or `test_policy.rego`). Regal [file-missing-test-suffix](https://www.openpolicyagent.org/projects/regal/rules/testing/file-missing-test-suffix).
+- **`_test` package + import policy**: Test packages end in `_test` (e.g., `package my.policy_test`). Import the policy under test and reference rules via the alias — bare rule names are not in scope. Regal [test-outside-test-package](https://www.openpolicyagent.org/projects/regal/rules/testing/test-outside-test-package).
+- **`test_` prefix on all test rules**: Every test function starts with `test_`. Regal enforces this via test discovery.
+- **No duplicate test names**: Each test must have a unique name within the package. Regal [identically-named-tests](https://www.openpolicyagent.org/projects/regal/rules/testing/identically-named-tests).
+- **No `todo_test_` in production**: `todo_test_` marks unimplemented tests (reported as SKIPPED). Remove or implement before shipping. Regal [todo-test](https://www.openpolicyagent.org/projects/regal/rules/testing/todo-test).
+- **No `print` or `trace` in production code**: These are debugging tools only. Regal [print-or-trace-call](https://www.openpolicyagent.org/projects/regal/rules/testing/print-or-trace-call), [dubious-print-sprintf](https://www.openpolicyagent.org/projects/regal/rules/testing/dubious-print-sprintf).
+- **No `with` outside tests**: `with` overrides are for test mocking only — not for production logic. Regal [with-outside-test-context](https://www.openpolicyagent.org/projects/regal/rules/performance/with-outside-test-context).
+- **Cover both positive and negative cases**: Test that compliant input passes AND that non-compliant input is denied. Validate exact error messages.
+
+---
+
+## Bug Avoidance
+
+- **No constant conditions**: `allow if 1 == 1` is meaningless. Every condition must check something meaningful. Regal [constant-condition](https://www.openpolicyagent.org/projects/regal/rules/bugs/constant-condition).
+- **No duplicate rules**: Don't define the same rule body twice. Regal [duplicate-rule](https://www.openpolicyagent.org/projects/regal/rules/bugs/duplicate-rule).
+- **Match `sprintf` argument count**: `sprintf("hello %v %v", [x])` with mismatched args will produce wrong output. Regal [sprintf-arguments-mismatch](https://www.openpolicyagent.org/projects/regal/rules/bugs/sprintf-arguments-mismatch).
+- **No impossible `not`**: `not x` where `x` can never be true is always true — a logic error. Regal [impossible-not](https://www.openpolicyagent.org/projects/regal/rules/bugs/impossible-not).
+- **No redundant existence checks**: Don't check `x != null` before accessing `x.field` if OPA will already fail safely on undefined. Regal [redundant-existence-check](https://www.openpolicyagent.org/projects/regal/rules/bugs/redundant-existence-check).
+- **No `!=` in loops**: `some x in arr; x != "foo"` doesn't mean "no element equals foo" — it matches all elements except `"foo"`. Use `every` or `not` instead. Regal [not-equals-in-loop](https://www.openpolicyagent.org/projects/regal/rules/bugs/not-equals-in-loop).
+- **No top-level iteration**: `x := input.items[_]` at package level fails when there are multiple items. Iteration belongs inside rule bodies. Regal [top-level-iteration](https://www.openpolicyagent.org/projects/regal/rules/bugs/top-level-iteration).
+- **No rule/variable shadowing built-ins**: Don't name a rule or variable `print`, `count`, `array`, etc. Regal [rule-shadows-builtin](https://www.openpolicyagent.org/projects/regal/rules/bugs/rule-shadows-builtin), [var-shadows-builtin](https://www.openpolicyagent.org/projects/regal/rules/bugs/var-shadows-builtin).
+- **Don't leak internal references**: Rules prefixed with `_` are internal — don't reference them from other packages. Regal [leaked-internal-reference](https://www.openpolicyagent.org/projects/regal/rules/bugs/leaked-internal-reference).
+- **Assign non-boolean return values**: If a function returns a non-boolean, assign the result — `x := f(y)` not just `f(y)`. Regal [unassigned-return-value](https://www.openpolicyagent.org/projects/regal/rules/bugs/unassigned-return-value).
+- **No unused output variables**: Every variable bound in a rule body must be used. Regal [unused-output-variable](https://www.openpolicyagent.org/projects/regal/rules/bugs/unused-output-variable).
+- **No redundant count before loop**: `count(arr) > 0` before `some x in arr` is redundant — the loop body simply won't execute if empty. Regal [redundant-loop-count](https://www.openpolicyagent.org/projects/regal/rules/bugs/redundant-loop-count).
+- **Don't assign the default value**: If `default x := false`, don't write a rule head `x := false if { ... }` — it's a no-op. Regal [rule-assigns-default](https://www.openpolicyagent.org/projects/regal/rules/bugs/rule-assigns-default).
+- **No `if {}` with empty object**: `allow if {}` is a syntax error — empty objects after `if` are not rule bodies. Regal [if-empty-object](https://www.openpolicyagent.org/projects/regal/rules/bugs/if-empty-object), [if-object-literal](https://www.openpolicyagent.org/projects/regal/rules/bugs/if-object-literal).
+- **No internal entrypoints**: Rules prefixed with `_` cannot be marked `entrypoint: true`. Regal [internal-entrypoint](https://www.openpolicyagent.org/projects/regal/rules/bugs/internal-entrypoint).
+- **Don't name a rule `if`**: `if` is a keyword in OPA 1.0 — naming a rule `if` is a parse error. Regal [rule-named-if](https://www.openpolicyagent.org/projects/regal/rules/bugs/rule-named-if).
+- **Call `time.now_ns()` once**: Cache the result in a variable — calling it twice in the same rule may return different values. Regal [time-now-ns-twice](https://www.openpolicyagent.org/projects/regal/rules/bugs/time-now-ns-twice).
+- **No deprecated built-ins**: Functions removed in OPA 1.0: `any()`, `all()`, `re_match()`, `net.cidr_overlap()`, `set_diff()`, and all `cast_*()` functions. Use modern replacements (`regex.match`, `net.cidr_contains`, etc.). Regal [deprecated-builtin](https://www.openpolicyagent.org/projects/regal/rules/bugs/deprecated-builtin).
+
+---
+
+## Style and Formatting
+
+- **Format with `opa fmt`**: All files must be formatted with `opa fmt`. Use `opa fmt --write` in CI. Regal [opa-fmt](https://www.openpolicyagent.org/projects/regal/rules/style/opa-fmt).
+- **Use `:=` for assignment**: Never use `=` for assignment or comparison — `:=` assigns, `==` compares, `=` is unification (pattern matching only). Regal [use-assignment-operator](https://www.openpolicyagent.org/projects/regal/rules/style/use-assignment-operator).
+- **`==` not `=` for equality**: Prefer `==` over `=` for equality comparisons. Regal [prefer-equals-comparison](https://www.openpolicyagent.org/projects/regal/rules/idiomatic/prefer-equals-comparison).
+- **No Yoda conditions**: Write `x == "value"` not `"value" == x`. Regal [yoda-condition](https://www.openpolicyagent.org/projects/regal/rules/style/yoda-condition).
+- **Comments start with a space**: `# comment` not `#comment`. Regal [no-whitespace-comment](https://www.openpolicyagent.org/projects/regal/rules/style/no-whitespace-comment).
+- **No TODO comments**: Resolve outstanding work before committing. Regal [todo-comment](https://www.openpolicyagent.org/projects/regal/rules/style/todo-comment).
+- **Line length ≤ 120 characters**: Break long expressions across multiple lines. Regal [line-length](https://www.openpolicyagent.org/projects/regal/rules/style/line-length).
+- **Keep rules concise**: Long rule bodies are a sign of missing helper rules. Regal [rule-length](https://www.openpolicyagent.org/projects/regal/rules/style/rule-length), [file-length](https://www.openpolicyagent.org/projects/regal/rules/style/file-length).
+- **No pointless reassignment**: Don't assign a variable to itself or to a value it already holds. Regal [pointless-reassignment](https://www.openpolicyagent.org/projects/regal/rules/style/pointless-reassignment).
+- **No unconditional assignment in rule body**: `x := 1` with no condition belongs in the rule head, not the body. Regal [unconditional-assignment](https://www.openpolicyagent.org/projects/regal/rules/style/unconditional-assignment).
+- **No messy incremental rules**: Partial set/object rules should be clean and focused — one concern per rule head. Regal [messy-rule](https://www.openpolicyagent.org/projects/regal/rules/style/messy-rule).
+
+---
+
+## Performance
+
+- **Defer assignments**: Place assignments close to where they're used. Don't compute values before cheap guard conditions. Regal [defer-assignment](https://www.openpolicyagent.org/projects/regal/rules/performance/defer-assignment).
+- **No non-loop expressions inside loops**: Move constant expressions out of loop bodies. Regal [non-loop-expression](https://www.openpolicyagent.org/projects/regal/rules/performance/non-loop-expression).
+- **Optimise `walk` calls**: If you only need values (not paths) from `walk`, use `walk(x, [_, v])` and ignore the path. Regal [walk-no-path](https://www.openpolicyagent.org/projects/regal/rules/performance/walk-no-path).
+
+---
 
 ## Design Patterns
 
-- **Default deny for security policies**: Start with `default allow := false` and enumerate only safe conditions. Prevents unknown dangerous actions.
+- **Default deny**: Start with `default allow := false` and enumerate only safe conditions.
+- **Deny/violation pattern**: Collect multiple failures as a set. `deny contains msg if { ... }` then gate `allow` on `count(deny) == 0`.
+- **Extract helpers**: Repeated conditions become named helper rules — improves readability and enables memoization.
+- **RBAC**: Map users → roles → permissions. Check if the requested action matches assigned permissions.
+- **Set subtraction for unknown fields**: `{field | input.body[field]} - allowed_fields != set()` detects disallowed keys without iterating field by field.
+- **`object.get` for safe access with defaults**: `object.get(obj, "key", default_value)` avoids undefined when a key may be absent.
+- **Mock with `with` in tests**: `rule with input as mock with data.x as mock_data` — never use `with` in production rules.
 
-- **Default allow with deny override (hybrid)**: Pattern `authz if { allow; not deny }` combines allowlist and denylist approaches.
-
-- **RBAC pattern**: Map users to roles, roles to permissions. Check if requested action matches assigned permissions.
-
-- **ABAC pattern**: Make decisions based on attributes of user, resource, and environment. Example: check user title, resource exchange, and transaction amount.
-
-- **Multiple validation rules with structured errors**: Build set of error messages. Pattern: `errors contains msg if { condition; msg := "..." }` then `valid if count(errors) == 0`.
-
-- **Deny pattern for admission control**: Generate set of violation messages. Pattern: `deny contains msg if { violation_check; msg := sprintf("...", [...]) }`.
-
-- **Filtering with set comprehensions**: Extract subset matching criteria. Pattern: `active_users := {user | user := input.users[_]; user.status == "active"}`.
-
-- **Aggregation with object rules**: Group and aggregate data. Pattern: `total_by_key[key] := sum if { ... }`.
-
-- **Mock data in tests with `with` keyword**: Replace input or data for testing. Pattern: `rule with input as mock_input with data.config as mock_config`.
-
-## Best Practices
-
-- **Optimize for readability, not performance**: Write declarative code expressing what, not how. Let OPA handle optimization. Only optimize if actual performance issues identified.
-
-- **Use `if` keyword**: Explicitly separates rule head from body. Required in OPA 1.0+ (and when using `import rego.v1`). Mandatory for all single-value rules to avoid ambiguity.
-
-- **Use `in` for membership**: Clearer and less error-prone than iteration + comparison. Pattern: `"admin" in input.user.roles` instead of `"admin" == input.user.roles[_]`.
-
-- **Use `some...in` for iteration**: Removes ambiguity. Pattern: `some host in data.network.hosts` instead of `host := data.network.hosts[_]`.
-
-- **Use `contains` for set rules**: Required in OPA 1.0+ for all multi-value (partial set) rules. Pattern: `deny contains msg if { ... }` instead of `deny[msg] { ... }`. The bracket notation for set rules is no longer valid in OPA 1.0.
-
-- **Use assignment (`:=`) and comparison (`==`)**: Avoid unification operator (`=`) except for pattern matching. Clear intent: `:=` assigns, `==` compares.
-
-- **Declare variables explicitly with `some`**: Improves safety and clarity. Avoid undeclared variables.
-
-- **Prefer sets over arrays for unordered collections**: O(1) lookups vs O(n). Enables set operations (union, intersection, difference).
-
-- **Use schemas for type checking**: Provide JSON schemas for `input` and `data`. Catches typos and structural errors early.
-
-- **Use schema annotations for input validation**: Associate JSON schemas with `input` and `data` paths using `# METADATA` schema annotations. Enables `opa check` to catch structural errors and typos at build time rather than runtime.
-
-- **Use metadata annotations on all entrypoint rules**: Every directly-queried decision rule (admission controllers, OPA REST API, governance tooling) should have `# METADATA` with at minimum `title`, `description`, and `entrypoint: true`. This enables CLI auto-discovery, documentation generation, and policy governance. Exception: Conftest `deny`/`warn`/`violation` rules must NOT have `entrypoint: true` — see entrypoint guidance above.
-
-- **Classify rules by severity using custom metadata**: Use `custom: severity: HIGH|MEDIUM|LOW` to categorize policy rules. Enables filtering, reporting, and prioritized violation handling.
-
-- **Use `rego.metadata.rule()` for dynamic behavior**: Access annotation data programmatically when policies need to adapt based on their own metadata (e.g., severity-aware error formatting).
-
-- **Import packages, not specific rules**: Provides context. Example: `user.is_admin` clearer than standalone `is_admin`. Never import individual `future.keywords` — use `import rego.v1` or rely on OPA 1.0 defaults. Never use `import input as tfplan` in Terraform IaC policies — use `tfplan := object.get(input, "plan", input)` instead.
-
-
-- **Use leading underscore for internal helpers**: Communicates intended scope. Tools can leverage this convention.
-
-- **Defer expensive assignments**: Place assignments close to where they're used. Don't compute values that might not be needed. Check cheap conditions first.
-
-- **Use `opa fmt` on save and in CI/CD**: Ensures consistent formatting across teams. Use `opa fmt --write --v0-v1` to automatically migrate policies to OPA 1.0 syntax.
-
-- **Use `opa check --strict`**: Catches unused imports and variables. Identifies common mistakes early. Use `opa check --v0-v1` to verify OPA 1.0 compatibility before upgrading.
-
-- **Write comprehensive tests**: Test both positive and negative cases. Use `with` for mocking. Target high coverage for critical policies. Use `opa test --coverage` to identify untested code paths.
-
-- **Use parameterized tests for exhaustive validation**: Define test cases as objects with descriptive keys. Pattern: `test_cases[name] if { some name, tc in cases; ... }`. Each case reports PASS/FAIL independently.
-
-- **Use `todo_` prefix for planned tests**: Mark unimplemented tests with `todo_test_` prefix. These are reported as SKIPPED, not FAIL. Useful for tracking test debt without blocking CI/CD.
-
-- **Use Regal linter**: Enforces style guide, identifies bugs and anti-patterns. Integrate with CI/CD.
-
-## Anti-patterns
-
-- **Top-level iteration without assignment**: Pattern `user := input.users[_]` at top level will fail with multiple items. Use in rule body instead.
-
-- **Constant conditions**: Pattern `allow if 1 == 1` provides no logic value. Every rule should check meaningful conditions.
-
-- **Undeclared variables in comprehensions**: Always declare iteration variables with `some`. Pattern: `some topic` before using in comprehension.
-
-- **Unification for simple operations**: Don't use `=` for assignment or comparison. Use `:=` for assignment, `==` for comparison.
-
-- **Non-raw regex patterns**: Use raw strings for regex to avoid double escaping. Pattern: `` regex.match(`[\d]+`, "12345") `` instead of `"[\\d]+"`.
-
-- **Top-level comprehensions for extensibility**: Set/object generating rules are preferred over top-level comprehensions as they can be extended across files.
-
-- **Missing error handling for undefined values**: Handle missing values explicitly. Use pattern `if not helper` where `helper` checks for presence.
-
-- **Default allow for security policies**: For security-critical decisions, use default deny. Default allow permits unknown dangerous actions.
-
-- **Missing input validation**: Don't assume input structure. Use schemas or explicit checks to handle malformed input gracefully.
-
-- **Overly permissive wildcards**: Be specific about what's allowed. Enumerate safe conditions explicitly rather than using broad wildcards.
-
-- **Using `import future.keywords`**: This import is deprecated. Use `import rego.v1` instead for OPA 0.55+ compatibility, or omit imports entirely for OPA 1.0+ where `if`, `contains`, `in`, and `every` are default keywords.
-
-- **Using deprecated built-in functions**: The following functions were removed in OPA 1.0: `any()`, `all()`, `re_match()`, `net.cidr_overlap()`, `set_diff()`, `cast_array()`, `cast_set()`, `cast_string()`, `cast_boolean()`, `cast_null()`, `cast_object()`. Use their modern replacements (e.g., `regex.match` instead of `re_match`, `net.cidr_contains` instead of `net.cidr_overlap`).
-
-## Conventions
-
-- **Use `snake_case` for all identifiers**: Rules, functions, variables, and constants all use snake_case naming.
-
-- **Use descriptive, action-oriented names**: Prefer clarity over brevity. Use `is_` or `has_` prefix for boolean helpers.
-
-- **Avoid unnecessary prefixes**: Don't use `get_` or `list_` prefixes (implied by Rego semantics).
-
-- **Package naming hierarchy**: Use lowercase, dot-separated hierarchy matching organization/domain structure.
-
-- **Test naming convention**: Prefix tests with `test_`. Make names descriptive of what's being tested.
-
-- **Keep line length ≤ 120 characters**: Break long comprehensions and expressions across multiple lines for readability.
-
-- **Separate policy from data**: Store configuration and permissions in `data`. Reference from policy rules. Enables data updates without policy changes.
-
-- **Use external data sources judiciously**: Balance freshness vs. performance when pulling runtime data. Use caching for expensive operations.
-
-- **Feature flags for gradual rollout**: Use data-driven flags to enable/disable new rules during transitions.
-
-- **Metadata block formatting**: Place `# METADATA` blocks immediately before the target (package or rule). Use a blank line after the YAML block if non-metadata comments follow. Keep YAML indentation consistent (2 spaces after `#`).
-
-- **Required metadata fields for entrypoints**: All entrypoint rules should include: `title` (short human-readable name), `description` (what the rule does), `entrypoint: true`, and `custom.severity` (HIGH, MEDIUM, or LOW).
-
-- **Semantic versioning for policies**: Track breaking vs. non-breaking changes. Document policy version in metadata.
-
-- **Maintain backward compatibility**: Avoid breaking changes when possible. Use deprecation warnings and provide migration paths.
+---
 
 ## Architectural Conventions
 
-- **Separation of concerns across packages**: Split policy by domain. Use imports to compose larger decisions from domain-specific packages.
-
-- **Team collaboration pattern**: Allow team packages to contribute to main decision. Main package imports and combines team decisions.
-
-- **Layered architecture**: Structure as base layer (utilities), domain layer (domain-specific rules), decision layer (compose domains).
-
-- **Policy-as-code in version control**: Treat policies as code. Use pull requests, code review, CI/CD testing before deployment.
-
-- **Document public API with entrypoint metadata**: Mark externally-queried rules to document the policy's public interface.
+- **Separate policy from data**: Store configuration and permissions in `data`. Reference from policy rules.
+- **Package mirrors domain**: `kubernetes.admission`, `rbac.authz`, `terraform.analysis` — lowercase dot-separated hierarchy.
+- **Layered packages**: Base (utilities) → domain (domain rules) → decision (composed output).
+- **Policy-as-code**: Version policies in git. Use pull requests and CI (`opa test`, `opa check --strict`, `regal lint`) before deployment.
+- **Run Regal in CI**: `regal lint` enforces all rules above automatically. Integrate as a required check.

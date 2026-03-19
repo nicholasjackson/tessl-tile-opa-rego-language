@@ -34,5 +34,57 @@
   {
     "name": "policy-testing",
     "description": "Write a Rego policy and tests using OPA test conventions including _test package suffix, input/data mocking with `with`, and deny message verification"
+  },
+  {
+    "name": "http-api-rate-limiting",
+    "description": "Write a Rego policy that enforces per-user API rate limits using `default rule := value` for tier-based fallbacks (premium, standard, default)"
+  },
+  {
+    "name": "http-api-body-validation",
+    "description": "Write a Rego policy that validates HTTP request body fields using set subtraction to detect unknown fields and explicit iteration for required field checks"
+  },
+  {
+    "name": "regal-naming-conventions",
+    "description": "Write Rego policies using correct naming conventions: snake_case identifiers, no get_/list_ prefixes on rule names, and no repetition of the package path in rule names"
+  },
+  {
+    "name": "regal-iteration-style",
+    "description": "Write Rego policies using `some x in collection` iteration style rather than `x := collection[_]` assignment-based iteration"
+  },
+  {
+    "name": "regal-membership-operators",
+    "description": "Write Rego policies using the `in` operator for membership checks rather than iterating and comparing with `==`"
+  },
+  {
+    "name": "regal-function-style",
+    "description": "Write Rego helper functions that take explicit arguments rather than referencing `input` or `data` directly (external-reference rule)"
+  },
+  {
+    "name": "regal-defaults",
+    "description": "Write Rego policies using `default rule := value` with the default declared at the top of the rule group, not using else branches or negation for fallback values"
+  },
+  {
+    "name": "regal-boolean-structure",
+    "description": "Write Rego policies using incremental set rules (`rule contains item if`) rather than comprehensions, and boolean rules without boolean literal assignments"
+  },
+  {
+    "name": "regal-comprehensions",
+    "description": "Write Rego policies using `object.keys()` for object key access and comprehension terms directly (not via intermediate variable assignment)"
+  },
+  {
+    "name": "regal-bugs",
+    "description": "Write Rego policies that avoid common bugs: use `x in collection` for membership (not `!=` in a loop), and match sprintf format string verbs to argument count"
+  },
+  {
+    "name": "regal-testing-style",
+    "description": "Write OPA tests in `_test.rego` files with `_test` package suffix, importing the policy package and referencing rules via the alias, with unique descriptive test names"
+  },
+  {
+    "name": "regal-imports",
+    "description": "Write Rego policies that import packages (not individual rules), avoid redundant aliases, and place all imports before any rule declarations"
+  },
+  {
+    "name": "regal-annotations",
+    "description": "Write Rego policies with metadata annotations at package and rule level, marking the entrypoint rule, with no blank lines between the metadata block and the rule"
   }
 ]

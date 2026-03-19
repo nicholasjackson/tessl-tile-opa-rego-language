@@ -413,20 +413,15 @@ api_key_has_permission if {
 
 **Description**: Enforces rate limits based on user identity or IP address to prevent abuse.
 
-**Key pattern — `default` for function fallbacks**: When a function needs a fallback value, declare it with `default` at the top using a wildcard argument (`_`). This is the Regal-recommended style ([default-over-else](https://www.openpolicyagent.org/projects/regal/rules/style/default-over-else)) — it makes the fallback immediately visible rather than buried at the end of a conditional chain:
+**Key pattern — `default` for rule fallbacks**: The same `default rule := value` pattern used for `default allow := false` applies to any rule. Declare the fallback at the top, then add specific rule heads for each tier. This is the Regal-recommended style ([default-over-else](https://www.openpolicyagent.org/projects/regal/rules/style/default-over-else)) — do **not** use `else :=`:
 
 ```rego
-# Declare the fallback first with _ as the wildcard argument
-default user_limit(_) := 10
+# Fallback for unknown tiers — same pattern as `default allow := false`
+default user_limit := 10
 
-# Then the specific cases
-user_limit(user) := 1000 if {
-    data.user_tiers[user] == "premium"
-}
-
-user_limit(user) := 100 if {
-    data.user_tiers[user] == "standard"
-}
+# Specific values for known tiers
+user_limit := 1000 if data.user_tiers[input.user] == "premium"
+user_limit := 100 if data.user_tiers[input.user] == "standard"
 ```
 
 Full example:
@@ -443,13 +438,11 @@ package httpapi.authz
 
 import rego.v1
 
-import data.rate_limits
-
 default allow := false
 
 # METADATA
 # title: Allow rate-limited requests
-# description: Permits requests when the user and IP are within their rate limits
+# description: Permits requests when the user is within their rate limit
 # entrypoint: true
 # custom:
 #   severity: MEDIUM
@@ -458,18 +451,13 @@ allow if {
 }
 
 rate_limit_exceeded if {
-    input.request_count >= user_rate_limit(input.user)
+    input.request_count >= user_limit
 }
 
-default user_rate_limit(_) := 10
+default user_limit := 10
 
-user_rate_limit(user) := 1000 if {
-    data.user_tiers[user] == "premium"
-}
-
-user_rate_limit(user) := 100 if {
-    data.user_tiers[user] == "standard"
-}
+user_limit := 1000 if data.user_tiers[input.user] == "premium"
+user_limit := 100 if data.user_tiers[input.user] == "standard"
 ```
 
 **Example Data** (loaded as `data.rate_limits`):
@@ -494,7 +482,7 @@ user_rate_limit(user) := 100 if {
 }
 ```
 
-**Result**: `allow == false` (bob has exceeded rate limit: 150 >= 100)
+**Result**: `allow == false` (bob is standard tier, limit 100, request_count 150 >= 100)
 
 **Testing**: Test each tier and the default fallback. Note that `data.user_tiers` is injected via `with data.user_tiers as`:
 
@@ -502,25 +490,26 @@ user_rate_limit(user) := 100 if {
 package httpapi.authz_test
 
 import rego.v1
+import data.httpapi.authz  # import the policy package under test
 
 tiers := {"alice": "premium", "bob": "standard"}
 
 # Premium user within limit
 test_premium_user_allowed if {
-    allow with input as {"user": "alice", "request_count": 999}
-         with data.user_tiers as tiers
+    authz.allow with input as {"user": "alice", "request_count": 999}
+               with data.user_tiers as tiers
 }
 
 # Standard user over limit
 test_standard_user_denied if {
-    not allow with input as {"user": "bob", "request_count": 101}
-             with data.user_tiers as tiers
+    not authz.allow with input as {"user": "bob", "request_count": 101}
+                   with data.user_tiers as tiers
 }
 
 # Unknown user gets default limit of 10
 test_unknown_user_default_limit if {
-    not allow with input as {"user": "unknown", "request_count": 11}
-             with data.user_tiers as tiers
+    not authz.allow with input as {"user": "unknown", "request_count": 11}
+                   with data.user_tiers as tiers
 }
 ```
 
@@ -684,12 +673,12 @@ deny contains "CORS credentials not allowed" if {
 
 ## 10. Request Body Validation
 
-**Description**: Validates request body structure and content before allowing API access.
+**Description**: Validates request body fields before allowing API access. Use set subtraction to detect unknown fields and explicit iteration to detect missing required fields.
 
 ```rego
 # METADATA
 # title: Request Body Validation
-# description: Validates request body structure and content before allowing API access
+# description: Validates request body structure — rejects unknown fields and enforces required fields
 # authors:
 # - API Security Team <api-security@example.com>
 # custom:
@@ -700,53 +689,37 @@ import rego.v1
 
 default allow := false
 
+allowed_fields := {"username", "email", "display_name"}
+required_fields := {"username", "email"}
+
 # METADATA
-# title: Allow requests with valid body
-# description: Permits requests when the request body passes structural and content validation
+# title: Allow valid POST requests
+# description: Permits POST /api/users when the body has no unknown fields and all required fields are present
 # entrypoint: true
 # custom:
 #   severity: MEDIUM
-# Allow POST requests with valid body
 allow if {
     input.method == "POST"
-    input.path == ["api", "users"]
-    valid_user_creation_body
+    input.path == "/api/users"
+    count(deny) == 0
 }
 
-# Validate user creation request body
-valid_user_creation_body if {
-    body := input.body
-
-    # Required fields present
-    body.email
-    body.username
-    body.password
-
-    # Field validation
-    count(body.password) >= 8
-    contains(body.email, "@")
-    count(body.username) >= 3
-
-    # No prohibited fields
-    not body.is_admin
-    not body.role
+# Reject unknown fields: compute submitted field names and use set subtraction
+deny contains msg if {
+    input.method == "POST"
+    input.path == "/api/users"
+    body_fields := {field | input.body[field]}
+    body_fields - allowed_fields != set()
+    msg := sprintf("unknown fields in request body: %v", [body_fields - allowed_fields])
 }
 
-# Allow PUT requests with valid update body
-allow if {
-    input.method == "PUT"
-    input.path = ["api", "users", user_id]
-    valid_user_update_body
-    input.user == user_id  # Can only update own profile
-}
-
-valid_user_update_body if {
-    body := input.body
-
-    # Only allowed fields
-    allowed_fields := {"email", "display_name", "bio"}
-    body_fields := {field | body[field]}
-    body_fields - allowed_fields == set()
+# Reject missing required fields
+deny contains msg if {
+    input.method == "POST"
+    input.path == "/api/users"
+    some field in required_fields
+    not input.body[field]
+    msg := sprintf("required field missing from request body: %v", [field])
 }
 ```
 
@@ -754,41 +727,50 @@ valid_user_update_body if {
 ```json
 {
     "method": "POST",
-    "path": ["api", "users"],
+    "path": "/api/users",
     "body": {
-        "email": "user@example.com",
-        "username": "newuser",
-        "password": "securepass123"
+        "username": "alice",
+        "email": "alice@example.com",
+        "admin": true
     }
 }
 ```
 
-**Result**: `allow == true` (valid user creation body)
+**Result**: `allow == false` — `body_fields` is `{"username", "email", "admin"}`, so `body_fields - allowed_fields` is `{"admin"}` which is not `set()`, and the deny rule fires.
 
-**Testing**: Use `with input as` to inject body payloads. The set subtraction test is the most important — verify that an unknown field causes denial and that only allowed fields passes:
+**Testing**: Use `with input as` to inject body payloads. Test both the unknown-field case (set subtraction) and the missing-field case:
 
 ```rego
+# authz_test.rego
 package httpapi.authz_test
 
 import rego.v1
+import data.httpapi.authz  # import the policy package under test
 
-# Allow: only allowed fields present
-test_valid_update_body if {
-    allow with input as {
-        "method": "PUT",
-        "path": ["api", "users", "alice"],
-        "user": "alice",
-        "body": {"email": "alice@example.com", "display_name": "Alice"}
+# Allow: only allowed fields, all required fields present
+test_valid_body_allowed if {
+    authz.allow with input as {
+        "method": "POST",
+        "path": "/api/users",
+        "body": {"username": "alice", "email": "alice@example.com"}
     }
 }
 
-# Deny: unknown field present (set subtraction catches it)
+# Deny: unknown field present — set subtraction detects it
 test_unknown_field_denied if {
-    not allow with input as {
-        "method": "PUT",
-        "path": ["api", "users", "alice"],
-        "user": "alice",
-        "body": {"email": "alice@example.com", "is_admin": true}
+    not authz.allow with input as {
+        "method": "POST",
+        "path": "/api/users",
+        "body": {"username": "alice", "email": "alice@example.com", "admin": true}
+    }
+}
+
+# Deny: required field missing
+test_missing_required_field_denied if {
+    not authz.allow with input as {
+        "method": "POST",
+        "path": "/api/users",
+        "body": {"username": "alice"}
     }
 }
 ```

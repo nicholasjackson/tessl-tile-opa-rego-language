@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent produces correctly structured OPA tests: test file named with `_test.rego` suffix, package uses `_test` suffix, imports the policy package and references rules via the alias, and each test has a unique descriptive name.",
+  "checklist": [
+    {
+      "name": "Test file named `authz_test.rego` with `_test` package suffix",
+      "description": "The test file is named `authz_test.rego` and the package is `api.authz_test` — not `test_authz.rego` or `package api.authz`",
+      "max_score": 25
+    },
+    {
+      "name": "Policy package imported and rules referenced via alias",
+      "description": "Test file contains `import data.api.authz` and references the rule as `authz.allow` — not just `allow` (which would fail since the test is in a different package)",
+      "max_score": 30
+    },
+    {
+      "name": "Unique descriptive test names",
+      "description": "Each `test_` rule has a unique, descriptive name (e.g. `test_allow_admin`, `test_deny_viewer_post`) — no duplicated test names",
+      "max_score": 20
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}
