@@ -1,0 +1,31 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent uses rego.metadata.rule() to access rule annotations at runtime and embeds the severity from custom metadata into the structured violation output.",
+  "checklist": [
+    {
+      "name": "import rego.v1",
+      "description": "The policy file includes `import rego.v1`",
+      "max_score": 10
+    },
+    {
+      "name": "METADATA block with custom.severity",
+      "description": "The deny/violations rule has a `# METADATA` annotation block with a `custom: severity:` field",
+      "max_score": 20
+    },
+    {
+      "name": "Uses rego.metadata.rule() at runtime",
+      "description": "The rule body calls `rego.metadata.rule()` (or `rego.metadata.chain()`) to read its own annotation at evaluation time",
+      "max_score": 35
+    },
+    {
+      "name": "Violation is a structured object with severity",
+      "description": "The violation output is a structured object containing both a `message` field and a `severity` field populated from the runtime annotation (not hardcoded)",
+      "max_score": 25
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 10
+    }
+  ]
+}

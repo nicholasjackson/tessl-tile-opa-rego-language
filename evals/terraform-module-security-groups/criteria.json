@@ -1,0 +1,21 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent uses the walk() built-in to traverse a Terraform planned_values tree including child modules, rather than hardcoding paths to root and child module resources. The input structure is input.planned_values, not tfplan.resource_changes.",
+  "checklist": [
+    {
+      "name": "Uses walk() built-in",
+      "description": "The policy uses `walk(input.planned_values, [path, value])` to traverse the planned_values tree rather than separately accessing root_module.resources and child_modules[*].resources",
+      "max_score": 47
+    },
+    {
+      "name": "Collects resources from all modules",
+      "description": "The policy builds a set of resources (e.g. `resources contains r if { ... }`) from the walk results, covering both root module and child module resources",
+      "max_score": 33
+    },
+    {
+      "name": "Deny rule for HTTP in description",
+      "description": "A deny rule triggers when any collected resource's `values.description` contains the string `\"HTTP\"` (using `contains()` built-in)",
+      "max_score": 20
+    }
+  ]
+}

@@ -27,7 +27,7 @@ This document provides comprehensive examples of implementing various access con
 
 ---
 
-## Basic RBAC
+## 1. Basic RBAC
 
 The most fundamental access control pattern: users are assigned roles, and roles are granted permissions.
 
@@ -86,7 +86,7 @@ allow if {
 
 ---
 
-## RBAC with Separation of Duty
+## 2. RBAC with Separation of Duty
 
 Prevents users from being assigned conflicting roles simultaneously to enforce compliance requirements.
 
@@ -136,7 +136,7 @@ allow if {
 
 ---
 
-## Dynamic Role Assignment
+## 3. Dynamic Role Assignment
 
 Automatically assigns roles based on user attributes rather than static assignments.
 
@@ -212,7 +212,7 @@ allow if {
 
 ---
 
-## Hierarchical Roles and Permission Inheritance
+## 4. Hierarchical Roles and Permission Inheritance
 
 Implements role hierarchies where higher-level roles inherit permissions from lower-level roles.
 
@@ -295,130 +295,7 @@ allow if {
 
 ---
 
-## Time-Based Access Control
-
-Restricts access based on time of day, day of week, or business hours.
-
-```rego
-package abac.time
-
-import rego.v1
-
-default allow := false
-
-# Business hours: 9 AM to 5 PM on weekdays
-allow if {
-    input.action == "access"
-    is_business_hours
-    is_weekday
-}
-
-# Allow access to emergency resources anytime
-allow if {
-    input.resource == "emergency-system"
-    input.user in emergency_users
-}
-
-is_business_hours if {
-    [hour, _, _] := time.clock(time.now_ns())
-    hour >= 9
-    hour < 17
-}
-
-is_weekday if {
-    weekday := time.weekday(time.now_ns())
-    weekday_name := ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][weekday]
-    weekday_name in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-}
-
-emergency_users := {"admin", "on-call-engineer"}
-
-# Allow administrators anytime
-allow if {
-    input.user in emergency_users
-    input.action != "delete"
-}
-```
-
-**Example Input:**
-```json
-{
-  "user": "alice",
-  "action": "access",
-  "resource": "corporate-vpn"
-}
-```
-
-**Result:** Depends on current time; allowed only during business hours on weekdays.
-
----
-
-## Location-Based Access Control
-
-Controls access based on geographic location or network source.
-
-```rego
-package abac.location
-
-import rego.v1
-
-# Allowed geographic regions
-allowed_regions := {"us-east-1", "us-west-2", "eu-west-1"}
-
-# Corporate network CIDR ranges
-corporate_networks := ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-
-# Geo-restricted resources
-geo_restricted_resources := {
-    "eu-customer-data": ["eu-west-1", "eu-central-1"],
-    "us-customer-data": ["us-east-1", "us-west-2"],
-}
-
-default allow := false
-
-# Allow if user is in allowed region
-allow if {
-    input.user_region in allowed_regions
-    not is_geo_restricted(input.resource)
-}
-
-# Allow if accessing from corporate network
-allow if {
-    is_corporate_network(input.source_ip)
-}
-
-# Geo-restricted resources require specific regions
-allow if {
-    is_geo_restricted(input.resource)
-    required_regions := geo_restricted_resources[input.resource]
-    input.user_region in required_regions
-}
-
-is_geo_restricted(resource) if {
-    geo_restricted_resources[resource]
-}
-
-is_corporate_network(ip) if {
-    some cidr in corporate_networks
-    net.cidr_contains(cidr, ip)
-}
-```
-
-**Example Input:**
-```json
-{
-  "user": "alice",
-  "resource": "eu-customer-data",
-  "user_region": "eu-west-1",
-  "source_ip": "10.0.1.50"
-}
-```
-
-**Result:** `allow` is `true` because user is in allowed region and on corporate network.
-
----
-
-## Multi-Factor Authentication Requirements
+## 5. Multi-Factor Authentication Requirements
 
 Requires MFA for sensitive operations or privileged access.
 
@@ -496,7 +373,7 @@ validate_emergency_code(code) if {
 
 ---
 
-## Context-Aware Authorization
+## 6. Context-Aware Authorization
 
 Makes access decisions based on device type, network security level, and other contextual factors.
 
@@ -576,7 +453,7 @@ requires_additional_verification if {
 
 ---
 
-## Role Delegation and Temporary Permissions
+## 7. Role Delegation and Temporary Permissions
 
 Allows users to temporarily delegate their permissions to others with time-based constraints.
 
@@ -669,7 +546,7 @@ has_delegated_permission(delegation) if {
 
 ---
 
-## Group-Based Access Control
+## 8. Group-Based Access Control
 
 Organizes users into groups with shared permissions, supporting nested groups.
 
@@ -755,7 +632,7 @@ allow if {
 
 ---
 
-## ABAC Patterns
+## 9. ABAC Patterns
 
 Comprehensive attribute-based access control using user, resource, and environmental attributes.
 
@@ -838,7 +715,7 @@ allow if {
 
 ---
 
-## Policy Combination Algorithms - Permit Overrides
+## 10. Policy Combination Algorithms - Permit Overrides
 
 Implements permit-overrides algorithm where any permit decision overrides all deny decisions.
 
@@ -908,7 +785,7 @@ policy_results := {
 
 ---
 
-## Policy Combination Algorithms - Deny Overrides
+## 11. Policy Combination Algorithms - Deny Overrides
 
 Implements deny-overrides algorithm where any deny decision overrides all permit decisions.
 
@@ -975,7 +852,7 @@ authorized_users := {"alice", "bob", "charlie"}
 
 ---
 
-## Delegation Constraints
+## 12. Delegation Constraints
 
 Controls who can delegate permissions and under what conditions.
 
@@ -1055,7 +932,7 @@ can_delegate if {
 
 ---
 
-## Mandatory Access Control (MAC) Patterns
+## 13. Mandatory Access Control (MAC) Patterns
 
 Implements mandatory access control with security labels and clearance levels.
 
@@ -1161,7 +1038,7 @@ indexof(array, element) := i if {
 
 ---
 
-## Discretionary Access Control (DAC) Patterns
+## 14. Discretionary Access Control (DAC) Patterns
 
 Implements discretionary access control where resource owners control access to their resources.
 
@@ -1239,7 +1116,7 @@ can_share if {
 
 ---
 
-## Resource Ownership Patterns
+## 15. Resource Ownership Patterns
 
 Enforces ownership-based access control with ownership transfer and delegation capabilities.
 
@@ -1325,7 +1202,7 @@ can_delete if {
 
 ---
 
-## Conditional Permissions Based on Resource State
+## 16. Conditional Permissions Based on Resource State
 
 Access decisions depend on the current state or properties of the resource being accessed.
 
@@ -1415,7 +1292,7 @@ allow if {
 
 ---
 
-## Break-Glass Access for Emergencies
+## 17. Break-Glass Access for Emergencies
 
 Provides emergency override mechanisms with strict auditing and justification requirements.
 
@@ -1515,7 +1392,7 @@ requires_security_notification if {
 
 ---
 
-## Multi-Tenant Access Control
+## 18. Multi-Tenant Access Control
 
 Implements isolation and access control in multi-tenant environments.
 

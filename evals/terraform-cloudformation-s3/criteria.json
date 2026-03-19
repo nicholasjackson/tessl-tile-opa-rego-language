@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements a correct CloudFormation hook policy for S3 bucket access control. This tests the CloudFormation-specific input structure and response format, which is completely different from Terraform plan validation. Key patterns: main := {allow, violations} response object, uppercase action strings (\"CREATE\"/\"UPDATE\"), input.resource.properties.* for property access, and helper rules to decompose conditions.",
+  "checklist": [
+    {
+      "name": "main response object",
+      "description": "The policy defines `main := {\"allow\": count(deny) == 0, \"violations\": deny}` (or equivalent) as the top-level response object",
+      "max_score": 20
+    },
+    {
+      "name": "Uppercase action strings and CloudFormation input structure",
+      "description": "The policy checks `input.action in {\"CREATE\", \"UPDATE\"}` (uppercase, not lowercase) and accesses properties via `input.resource.properties.*` and the resource ID via `input.resource.id`",
+      "max_score": 27
+    },
+    {
+      "name": "Helper rules for conditions",
+      "description": "The policy uses helper rules (e.g. `bucket_create_or_update`, `bucket_is_private`, `block_public_acls`, `block_public_policy`) to decompose conditions rather than inlining all logic in the deny rules",
+      "max_score": 20
+    },
+    {
+      "name": "Three deny rules covering AccessControl and both BlockPublic settings",
+      "description": "There are separate deny rules for: AccessControl != \"Private\", BlockPublicAcls != \"true\", and BlockPublicPolicy != \"true\"",
+      "max_score": 33
+    }
+  ]
+}

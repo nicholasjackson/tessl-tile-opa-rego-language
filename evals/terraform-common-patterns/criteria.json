@@ -1,0 +1,16 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent applies the two cross-cutting Terraform IaC patterns that appear in every policy: using import rego.v1 (not import future.keywords) and normalizing input with tfplan := object.get(input, \"plan\", input) so the policy works with both raw Terraform and HCP Terraform/Enterprise input structures. These criteria are tested here and excluded from all other terraform IaC scenarios to avoid inflating their scores.",
+  "checklist": [
+    {
+      "name": "import rego.v1",
+      "description": "The policy uses `import rego.v1` (not `import future.keywords` or no import at all)",
+      "max_score": 50
+    },
+    {
+      "name": "object.get input normalization",
+      "description": "The policy defines `tfplan := object.get(input, \"plan\", input)` as a package-level rule and uses `tfplan.resource_changes` throughout — never `input.resource_changes` directly. This ensures the policy works with both raw Terraform and HCP Terraform/Enterprise input structures.",
+      "max_score": 50
+    }
+  ]
+}

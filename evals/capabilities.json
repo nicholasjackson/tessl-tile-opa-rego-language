@@ -16,6 +16,10 @@
     "description": "Write a Terraform plan validation policy in Rego that prevents aws_security_group resources from allowing inbound SSH access from the internet"
   },
   {
+    "name": "cloudformation-hook-policy",
+    "description": "Write an OPA policy for an AWS CloudFormation hook that validates resource properties before deployment, using the CloudFormation hook input structure (input.resource.type, input.resource.properties, input.action with uppercase CREATE/UPDATE) and the package system response format"
+  },
+  {
     "name": "kubernetes-admission-control",
     "description": "Write a Kubernetes admission control policy in Rego using the kube-mgmt pattern (package kubernetes.admission, deny contains msg)"
   },

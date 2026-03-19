@@ -1,0 +1,21 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements a correct S3 encryption enforcement policy that handles both inline encryption blocks on aws_s3_bucket and the separate aws_s3_bucket_server_side_encryption_configuration resource type, with a helper function to validate the algorithm.",
+  "checklist": [
+    {
+      "name": "Deny on aws_s3_bucket without inline encryption",
+      "description": "A deny rule triggers when an `aws_s3_bucket` is being created and `r.change.after.server_side_encryption_configuration` is absent or falsy",
+      "max_score": 34
+    },
+    {
+      "name": "Deny on separate encryption resource with invalid algorithm",
+      "description": "A deny rule triggers when an `aws_s3_bucket_server_side_encryption_configuration` resource is created with an `sse_algorithm` that is not `\"AES256\"` or `\"aws:kms\"`",
+      "max_score": 42
+    },
+    {
+      "name": "Helper function for algorithm validation",
+      "description": "The policy extracts the algorithm validation logic into a named helper function or rule (e.g. `encryption_algorithm_valid`) that iterates over the nested rule/encryption blocks",
+      "max_score": 24
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
   "tile": "tessl/golang-opa-rego-language",
   "description": "Evaluates whether the tile guides agents to produce correct, idiomatic Rego policies using OPA best practices including TDD, default deny, multi-value rules, and proper input handling",
-  "scenarios": 8
+  "scenarios": 13
 }

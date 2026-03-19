@@ -16,7 +16,7 @@ HTTP API authorization policies typically evaluate requests based on:
 
 ---
 
-## Example 1: Hierarchical Authorization (Manager-Subordinate Relationships)
+## 1. Hierarchical Authorization (Manager-Subordinate Relationships)
 
 **Description**: Implements context-aware authorization based on organizational hierarchy, allowing users to access their own resources and managers to access their subordinates' resources.
 
@@ -76,7 +76,7 @@ allow if {
 
 ---
 
-## Example 2: JWT-Based Access Control with Claims Validation
+## 2. JWT-Based Access Control with Claims Validation
 
 **Description**: Validates JWT tokens and extracts claims to make authorization decisions, ensuring tokens are issued to the correct user.
 
@@ -151,7 +151,7 @@ token := {"payload": payload} if {
 
 ---
 
-## Example 3: Method-Based Permissions (GET/POST/PUT/DELETE)
+## 3. Method-Based Permissions (GET/POST/PUT/DELETE)
 
 **Description**: Restricts HTTP methods based on user permissions, implementing a standard read/write/admin permission model.
 
@@ -217,7 +217,7 @@ allow if {
 
 ---
 
-## Example 4: Path-Based Authorization with Wildcards and Patterns
+## 4. Path-Based Authorization with Wildcards and Patterns
 
 **Description**: Controls access based on API path patterns using glob matching, allowing administrators to define flexible access rules.
 
@@ -271,145 +271,67 @@ allow if {
 
 ---
 
-## Example 5: OAuth2 Token Validation
+## 5. Token Validation (OAuth2 and OIDC)
 
-**Description**: Validates OAuth2 access tokens by checking scopes, expiration, and issuer claims.
+**Description**: Validates JWT-based tokens for both OAuth2 (scope + expiry) and OIDC (email domain extraction) patterns.
+
+The key patterns beyond basic `io.jwt.decode`:
+- **OAuth2**: check expiry with `token.payload.exp > time.now_ns() / 1000000000` (nanosecond to second conversion) and look up required scopes via an endpoint map
+- **OIDC**: extract email domain with `split(email, "@")[1]` and validate multiple claims (exp, iss, aud, email_verified) in one rule body
 
 ```rego
-# METADATA
-# title: OAuth2 Token Validation
-# description: Validates OAuth2 access tokens by checking scopes, expiration, and issuer
-# authors:
-# - API Security Team <api-security@example.com>
-# custom:
-#   category: http-authorization
 package httpapi.authz
 
 import rego.v1
 
+# --- OAuth2 ---
+
 default allow := false
 
-# METADATA
-# title: Allow OAuth2-authenticated requests
-# description: Permits requests when the OAuth2 token is valid and has the required scope
-# entrypoint: true
-# custom:
-#   severity: HIGH
-# Allow access if token has required scope and is valid
 allow if {
     token_valid
     has_required_scope
 }
 
-# Validate token expiration and issuer
 token_valid if {
     token.payload.exp > time.now_ns() / 1000000000
     token.payload.iss == "https://auth.example.com"
 }
 
-# Check if token has required scope for the endpoint
 has_required_scope if {
     required_scope := endpoint_scopes[concat("/", input.path)]
     required_scope in token.payload.scope
 }
 
-# Map endpoints to required OAuth2 scopes
 endpoint_scopes := {
     "/api/users": "users:read",
     "/api/users/create": "users:write",
-    "/api/admin": "admin:access"
+    "/api/admin": "admin:access",
 }
 
-# Decode JWT token
 token := {"payload": payload} if {
-    [header, payload, signature] := io.jwt.decode(input.token)
-}
-```
-
-**Example Input**:
-```json
-{
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2F1dGguZXhhbXBsZS5jb20iLCJleHAiOjk5OTk5OTk5OTksInNjb3BlIjpbInVzZXJzOnJlYWQiXX0...",
-    "path": ["api", "users"]
-}
-```
-
-**Result**: `allow == true` (token is valid and has required scope)
-
----
-
-## Example 6: OpenID Connect Integration
-
-**Description**: Integrates with OpenID Connect providers by validating ID tokens and extracting user profile information.
-
-```rego
-# METADATA
-# title: OpenID Connect Integration
-# description: Integrates with OIDC providers by validating ID tokens and user profiles
-# authors:
-# - API Security Team <api-security@example.com>
-# custom:
-#   category: http-authorization
-package httpapi.authz
-
-import rego.v1
-
-default allow := false
-
-# METADATA
-# title: Allow OIDC-authenticated requests
-# description: Permits requests when the OIDC ID token is valid and user domain is allowed
-# entrypoint: true
-# custom:
-#   severity: HIGH
-# Allow access if OIDC token is valid
-allow if {
-    oidc_token_valid
-    user_has_access
+    [_, payload, _] := io.jwt.decode(input.token)
 }
 
-# Validate OIDC ID token
+# --- OIDC ---
+
 oidc_token_valid if {
-    # Token not expired
     token.payload.exp > time.now_ns() / 1000000000
-
-    # Token issued by trusted provider
     token.payload.iss == "https://accounts.google.com"
-
-    # Token audience matches our application
     token.payload.aud == "our-app-client-id"
-
-    # Email verified
     token.payload.email_verified == true
 }
 
-# Check if user's email domain has access
-user_has_access if {
+user_domain_allowed if {
     email := token.payload.email
     domain := split(email, "@")[1]
-    domain in allowed_domains
-}
-
-allowed_domains := {"example.com", "partner.com"}
-
-# Decode ID token
-token := {"payload": payload} if {
-    [header, payload, signature] := io.jwt.decode(input.id_token)
+    domain in {"example.com", "partner.com"}
 }
 ```
-
-**Example Input**:
-```json
-{
-    "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhdWQiOiJvdXItYXBwLWNsaWVudC1pZCIsImV4cCI6OTk5OTk5OTk5OSwiZW1haWwiOiJ1c2VyQGV4YW1wbGUuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWV9..."
-}
-```
-
-**Result**: `allow == true` (valid OIDC token from allowed domain)
 
 ---
 
-## Example 7: API Key Authentication
+## 6. API Key Authentication
 
 **Description**: Validates API keys and enforces key-specific permissions and rate limits.
 
@@ -487,9 +409,27 @@ api_key_has_permission if {
 
 ---
 
-## Example 8: Rate Limiting Policies per User/IP
+## 7. Rate Limiting Policies per User/IP
 
 **Description**: Enforces rate limits based on user identity or IP address to prevent abuse.
+
+**Key pattern — `default` for function fallbacks**: When a function needs a fallback value, declare it with `default` at the top using a wildcard argument (`_`). This is the Regal-recommended style ([default-over-else](https://www.openpolicyagent.org/projects/regal/rules/style/default-over-else)) — it makes the fallback immediately visible rather than buried at the end of a conditional chain:
+
+```rego
+# Declare the fallback first with _ as the wildcard argument
+default user_limit(_) := 10
+
+# Then the specific cases
+user_limit(user) := 1000 if {
+    data.user_tiers[user] == "premium"
+}
+
+user_limit(user) := 100 if {
+    data.user_tiers[user] == "standard"
+}
+```
+
+Full example:
 
 ```rego
 # METADATA
@@ -513,33 +453,23 @@ default allow := false
 # entrypoint: true
 # custom:
 #   severity: MEDIUM
-# Allow access if within rate limit
 allow if {
     not rate_limit_exceeded
 }
 
-# Check if user has exceeded their rate limit
 rate_limit_exceeded if {
-    limit := user_rate_limit
-    count := rate_limits.user_requests[input.user]
-    count >= limit
+    input.request_count >= user_rate_limit(input.user)
 }
 
-# Check if IP has exceeded rate limit
-rate_limit_exceeded if {
-    limit := ip_rate_limit
-    count := rate_limits.ip_requests[input.source_ip]
-    count >= limit
+default user_rate_limit(_) := 10
+
+user_rate_limit(user) := 1000 if {
+    data.user_tiers[user] == "premium"
 }
 
-# Get user-specific rate limit
-user_rate_limit := limit if {
-    import data.users
-    limit := users[input.user].rate_limit
-} else := 100  # Default limit
-
-# IP-based rate limit (stricter)
-ip_rate_limit := 50
+user_rate_limit(user) := 100 if {
+    data.user_tiers[user] == "standard"
+}
 ```
 
 **Example Data** (loaded as `data.rate_limits`):
@@ -560,15 +490,43 @@ ip_rate_limit := 50
 ```json
 {
     "user": "bob",
-    "source_ip": "192.168.1.100"
+    "request_count": 150
 }
 ```
 
 **Result**: `allow == false` (bob has exceeded rate limit: 150 >= 100)
 
+**Testing**: Test each tier and the default fallback. Note that `data.user_tiers` is injected via `with data.user_tiers as`:
+
+```rego
+package httpapi.authz_test
+
+import rego.v1
+
+tiers := {"alice": "premium", "bob": "standard"}
+
+# Premium user within limit
+test_premium_user_allowed if {
+    allow with input as {"user": "alice", "request_count": 999}
+         with data.user_tiers as tiers
+}
+
+# Standard user over limit
+test_standard_user_denied if {
+    not allow with input as {"user": "bob", "request_count": 101}
+             with data.user_tiers as tiers
+}
+
+# Unknown user gets default limit of 10
+test_unknown_user_default_limit if {
+    not allow with input as {"user": "unknown", "request_count": 11}
+             with data.user_tiers as tiers
+}
+```
+
 ---
 
-## Example 9: API Versioning Policies
+## 8. API Versioning Policies
 
 **Description**: Enforces different authorization rules based on API version, allowing gradual migration and deprecation.
 
@@ -650,7 +608,7 @@ has_required_scope_v3 if {
 
 ---
 
-## Example 10: CORS Policy Enforcement
+## 9. CORS Policy Enforcement
 
 **Description**: Enforces Cross-Origin Resource Sharing (CORS) policies by validating origin headers.
 
@@ -724,7 +682,7 @@ deny contains "CORS credentials not allowed" if {
 
 ---
 
-## Example 11: Request Body Validation
+## 10. Request Body Validation
 
 **Description**: Validates request body structure and content before allowing API access.
 
@@ -807,9 +765,37 @@ valid_user_update_body if {
 
 **Result**: `allow == true` (valid user creation body)
 
+**Testing**: Use `with input as` to inject body payloads. The set subtraction test is the most important — verify that an unknown field causes denial and that only allowed fields passes:
+
+```rego
+package httpapi.authz_test
+
+import rego.v1
+
+# Allow: only allowed fields present
+test_valid_update_body if {
+    allow with input as {
+        "method": "PUT",
+        "path": ["api", "users", "alice"],
+        "user": "alice",
+        "body": {"email": "alice@example.com", "display_name": "Alice"}
+    }
+}
+
+# Deny: unknown field present (set subtraction catches it)
+test_unknown_field_denied if {
+    not allow with input as {
+        "method": "PUT",
+        "path": ["api", "users", "alice"],
+        "user": "alice",
+        "body": {"email": "alice@example.com", "is_admin": true}
+    }
+}
+```
+
 ---
 
-## Example 12: Response Filtering
+## 11. Response Filtering
 
 **Description**: Filters response data based on user permissions, removing sensitive fields.
 
@@ -890,7 +876,7 @@ filtered_response := {field: value |
 
 ---
 
-## Example 13: Tenant Isolation in Multi-Tenant APIs
+## 12. Tenant Isolation in Multi-Tenant APIs
 
 **Description**: Enforces tenant isolation to prevent cross-tenant data access in SaaS applications.
 
@@ -969,7 +955,7 @@ platform_admins := {"platform_admin", "support_admin"}
 
 ---
 
-## Example 14: Time-Window Based Access (Business Hours Only)
+## 13. Time-Window Based Access (Business Hours Only)
 
 **Description**: Restricts API access to specific time windows, such as business hours or maintenance windows.
 
@@ -1037,7 +1023,7 @@ admins := {"admin", "ops_team"}
 
 ---
 
-## Example 15: IP Allowlist/Denylist
+## 14. IP Allowlist/Denylist
 
 **Description**: Controls API access based on source IP addresses using allowlists and denylists.
 
@@ -1116,7 +1102,7 @@ partner_ips := {
 
 ---
 
-## Example 16: User Agent Restrictions
+## 15. User Agent Restrictions
 
 **Description**: Restricts API access based on User-Agent headers to prevent scraping or enforce client requirements.
 
@@ -1198,7 +1184,7 @@ blocked_patterns := {
 
 ---
 
-## Example 17: Content-Type Validation
+## 16. Content-Type Validation
 
 **Description**: Validates that requests have appropriate Content-Type headers for the endpoint.
 
@@ -1277,7 +1263,7 @@ dangerous_content_types := {
 
 ---
 
-## Example 18: Query Parameter Validation
+## 17. Query Parameter Validation
 
 **Description**: Validates query parameters to prevent injection attacks and enforce business rules.
 
@@ -1370,7 +1356,7 @@ injection_patterns := {
 
 ---
 
-## Example 19: HTTP Header Requirements
+## 18. HTTP Header Requirements
 
 **Description**: Enforces required HTTP headers for security and tracking purposes.
 
@@ -1458,7 +1444,7 @@ security_headers := {
 
 ---
 
-## Example 20: Comprehensive Multi-Factor Authorization
+## 19. Comprehensive Multi-Factor Authorization
 
 **Description**: Combines multiple authorization factors including user identity, JWT validation, role permissions, IP restrictions, and time constraints.
 

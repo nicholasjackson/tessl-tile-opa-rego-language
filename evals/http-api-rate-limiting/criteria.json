@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements per-user rate limiting using a function with a default fallback value declared using the `default` keyword.",
+  "checklist": [
+    {
+      "name": "import rego.v1",
+      "description": "The policy file includes `import rego.v1`",
+      "max_score": 10
+    },
+    {
+      "name": "Function default with wildcard argument",
+      "description": "The policy declares a default for the limit function using `default user_limit(_) := <value>` (wildcard argument `_`) — not using `else :=` or `object.get`",
+      "max_score": 40
+    },
+    {
+      "name": "Per-tier limit lookup",
+      "description": "The primary function head looks up the user's tier and returns the appropriate limit",
+      "max_score": 25
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 25
+    }
+  ]
+}

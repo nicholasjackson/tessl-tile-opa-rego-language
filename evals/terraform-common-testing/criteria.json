@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent writes a _test.rego file alongside an IaC policy, using the correct OPA test conventions: _test package suffix, with input as mocking with realistic Terraform plan JSON, both positive and negative test cases, and passing tests. These testing criteria are extracted here so they are not duplicated across every individual IaC scenario.",
+  "checklist": [
+    {
+      "name": "_test package suffix",
+      "description": "The test file declares a package with the `_test` suffix (e.g. `package terraform.analysis_test`) and imports the policy under test",
+      "max_score": 25
+    },
+    {
+      "name": "mocks Terraform plan input with `with input as`",
+      "description": "Test rules supply mock Terraform plan JSON using `with input as { \"resource_changes\": [...] }` (or the HCP Terraform nested form) rather than relying on real input",
+      "max_score": 25
+    },
+    {
+      "name": "includes both positive and negative test cases",
+      "description": "Tests cover both the compliant case (deny is empty when bucket_prefix is set) and the violating case (deny contains a message when bucket_prefix is absent)",
+      "max_score": 25
+    },
+    {
+      "name": "tests pass",
+      "description": "All tests pass when running `opa test . -v`",
+      "max_score": 25
+    }
+  ]
+}

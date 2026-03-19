@@ -1,0 +1,21 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements a correct multi-region deployment policy. Key patterns: accessing provider config at tfplan.configuration.provider_config.aws.expressions.region.constant_value (a deeply nested path), EU data residency check combining resource tag and region, and a has_replication helper with multiple function heads for S3 vs DynamoDB.",
+  "checklist": [
+    {
+      "name": "Provider region check via configuration path",
+      "description": "The policy reads the AWS provider region from `tfplan.configuration.provider_config.aws.expressions.region.constant_value` and denies if it is not in the approved set",
+      "max_score": 36
+    },
+    {
+      "name": "EU data residency deny rule",
+      "description": "A deny rule triggers when a data-holding resource (`aws_s3_bucket`, `aws_rds_cluster`, or `aws_dynamodb_table`) is created with tag `DataResidency == \"EU\"` and the provider region is not in `{\"eu-west-1\", \"eu-central-1\"}`",
+      "max_score": 36
+    },
+    {
+      "name": "has_replication helper with multiple function heads",
+      "description": "A `has_replication` (or equivalent) helper has separate function heads for S3 (checking `replication_configuration`) and DynamoDB (checking `count(replica) > 0`), and is used in a warn rule for high-criticality resources",
+      "max_score": 28
+    }
+  ]
+}

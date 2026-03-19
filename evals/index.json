@@ -1,0 +1,121 @@
+[
+  {
+    "scenario": "access-control-rbac",
+    "title": "Access Control: RBAC Policy",
+    "capability": "basic-rbac",
+    "doc": "docs/access-control-models.md",
+    "doc_section": "1. Basic RBAC"
+  },
+  {
+    "scenario": "access-control-sod",
+    "title": "Access Control: Separation of Duty",
+    "capability": "basic-rbac",
+    "doc": "docs/access-control-models.md",
+    "doc_section": "2. RBAC with Separation of Duty"
+  },
+  {
+    "scenario": "http-api-authorization",
+    "title": "HTTP API: Authorization Policy",
+    "capability": "http-api-authorization",
+    "doc": "docs/http-api-authorization.md",
+    "doc_section": "2. JWT-Based Access Control with Claims Validation"
+  },
+  {
+    "scenario": "http-api-rate-limiting",
+    "title": "HTTP API: Rate Limiting with else :=",
+    "capability": "http-api-authorization",
+    "doc": "docs/http-api-authorization.md",
+    "doc_section": "7. Rate Limiting Policies per User/IP"
+  },
+  {
+    "scenario": "http-api-body-validation",
+    "title": "HTTP API: Request Body Field Validation",
+    "capability": "http-api-authorization",
+    "doc": "docs/http-api-authorization.md",
+    "doc_section": "10. Request Body Validation"
+  },
+  {
+    "scenario": "kubernetes-admission-policy",
+    "title": "Kubernetes: Admission Policy (kube-mgmt)",
+    "capability": "kubernetes-admission-control",
+    "doc": "docs/kubernetes-admission-control.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "kubernetes-gatekeeper-policy",
+    "title": "Kubernetes: Gatekeeper Policy",
+    "capability": "kubernetes-gatekeeper",
+    "doc": "docs/kubernetes-admission-control.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "metadata-annotations",
+    "title": "Metadata: Policy Annotations",
+    "capability": "policy-metadata-annotations",
+    "doc": "docs/metadata-annotations.md",
+    "doc_section": null
+  },
+  {
+    "scenario": "metadata-runtime-annotations",
+    "title": "Metadata: Runtime Annotation Access",
+    "capability": "policy-metadata-annotations",
+    "doc": "docs/metadata-annotations.md",
+    "doc_section": "5. Accessing Metadata at Runtime with `rego.metadata.rule()`"
+  },
+  {
+    "scenario": "terraform-common-patterns",
+    "title": "Terraform: Common Patterns",
+    "capability": "terraform-iac-validation",
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "IMPORTANT: Testing IaC Policies"
+  },
+  {
+    "scenario": "terraform-common-testing",
+    "title": "Terraform: Common Testing Pattern",
+    "capability": "policy-testing",
+    "doc": null,
+    "doc_section": null
+  },
+  {
+    "scenario": "terraform-s3-encryption",
+    "title": "Terraform: S3 Bucket Encryption",
+    "capability": "terraform-iac-validation",
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "1. S3 BUCKET COMPLIANCE (ENCRYPTION AND VERSIONING)"
+  },
+  {
+    "scenario": "terraform-s3-versioning",
+    "title": "Terraform: S3 Bucket Versioning",
+    "capability": "terraform-iac-validation",
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "1. S3 BUCKET COMPLIANCE (ENCRYPTION AND VERSIONING)"
+  },
+  {
+    "scenario": "terraform-required-tags",
+    "title": "Terraform: Required Tags Enforcement",
+    "capability": "terraform-iac-validation",
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "2. REQUIRED TAGS ENFORCEMENT"
+  },
+  {
+    "scenario": "terraform-cloudformation-s3",
+    "title": "Terraform: CloudFormation Hook — S3 Bucket Access Control",
+    "capability": "cloudformation-hook-policy",
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "3. CLOUDFORMATION S3 BUCKET ACCESS CONTROL"
+  },
+  {
+    "scenario": "terraform-module-security-groups",
+    "title": "Terraform: Module Security Group Validation",
+    "capability": "terraform-iac-validation",
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "4. TERRAFORM MODULE SECURITY GROUP VALIDATION"
+  },
+  {
+    "scenario": "terraform-multi-region",
+    "title": "Terraform: Multi-Region Deployment Policies",
+    "capability": "terraform-iac-validation",
+    "doc": "docs/infrastructure-as-code.md",
+    "doc_section": "5. MULTI-REGION DEPLOYMENT POLICIES"
+  }
+]

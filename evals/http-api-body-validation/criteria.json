@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements request body validation using set operations to detect unknown fields and missing required fields.",
+  "checklist": [
+    {
+      "name": "import rego.v1",
+      "description": "The policy file includes `import rego.v1`",
+      "max_score": 10
+    },
+    {
+      "name": "Set subtraction to detect unknown fields",
+      "description": "The policy computes the set of submitted field names (e.g. `body_fields := {field | input.body[field]}`) and uses set subtraction against the allowed set to find unknown fields (e.g. `body_fields - allowed_fields != set()`)",
+      "max_score": 40
+    },
+    {
+      "name": "Checks for required fields",
+      "description": "The policy also validates that all required fields are present",
+      "max_score": 25
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 25
+    }
+  ]
+}

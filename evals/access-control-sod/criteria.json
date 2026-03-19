@@ -1,0 +1,31 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements a separation-of-duty violation detector that iterates over user roles and checks for conflicting role pairs using array-of-arrays membership.",
+  "checklist": [
+    {
+      "name": "import rego.v1",
+      "description": "The policy file includes `import rego.v1`",
+      "max_score": 10
+    },
+    {
+      "name": "Partial set rule for violations",
+      "description": "The policy defines a partial set rule (e.g. `sod_violation contains user if`) that collects all violating users",
+      "max_score": 20
+    },
+    {
+      "name": "Iterates over conflicting pairs with array-of-arrays membership",
+      "description": "The policy checks for conflicting role pairs using a pattern like `[role1, role2] in sod_roles` (array-of-arrays membership) — not by comparing two separate sets or using string equality",
+      "max_score": 35
+    },
+    {
+      "name": "Reads user roles from data",
+      "description": "The policy reads role assignments from `data.user_roles` (or equivalent external data) rather than hardcoding them",
+      "max_score": 20
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 15
+    }
+  ]
+}

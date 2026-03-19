@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent implements a correct Kubernetes admission control policy in Rego using the kube-mgmt pattern: deny contains msg, and input.request.object for the Pod spec.",
+  "checklist": [
+    {
+      "name": "deny contains msg pattern",
+      "description": "The policy uses `deny contains msg if { ... }` to collect violation messages",
+      "max_score": 27
+    },
+    {
+      "name": "Checks input.request.kind.kind",
+      "description": "The deny rule checks `input.request.kind.kind == \"Pod\"` to scope the policy to Pods only",
+      "max_score": 21
+    },
+    {
+      "name": "Deny rule for privileged containers",
+      "description": "The deny rule iterates over `input.request.object.spec.containers` and triggers when `container.securityContext.privileged == true`",
+      "max_score": 40
+    },
+    {
+      "name": "Tests pass",
+      "description": "All tests pass when running `opa test . -v` (if tests are present)",
+      "max_score": 12
+    }
+  ]
+}

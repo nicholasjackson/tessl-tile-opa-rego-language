@@ -999,6 +999,66 @@ violation contains {"msg": msg} if {
 }
 ```
 
+### Testing Gatekeeper Policies
+
+Gatekeeper policies are tested with `opa test` like any other Rego policy, but the mock input structure is different — you must mock both `input.review.object` (the Kubernetes resource) and `input.parameters` (the Constraint parameters). Use `with input as` to inject the full input document.
+
+The test package must use the `_test` suffix matching the policy package name.
+
+```rego
+package k8srequiredlabels_test
+
+import rego.v1
+
+# Positive case: deployment has all required labels — no violation
+test_required_labels_present if {
+    result := data.k8srequiredlabels.violation with input as {
+        "review": {
+            "object": {
+                "metadata": {
+                    "name": "my-deployment",
+                    "labels": {
+                        "team": "platform",
+                        "env": "prod"
+                    }
+                }
+            }
+        },
+        "parameters": {
+            "labels": ["team", "env"]
+        }
+    }
+    count(result) == 0
+}
+
+# Negative case: deployment is missing the "env" label — violation expected
+test_required_labels_missing if {
+    result := data.k8srequiredlabels.violation with input as {
+        "review": {
+            "object": {
+                "metadata": {
+                    "name": "my-deployment",
+                    "labels": {
+                        "team": "platform"
+                    }
+                }
+            }
+        },
+        "parameters": {
+            "labels": ["team", "env"]
+        }
+    }
+    count(result) == 1
+    some v in result
+    contains(v.msg, "env")
+}
+```
+
+Key differences from kube-mgmt test patterns:
+- Mock `input.review.object` (not `input.request.object`)
+- Include `input.parameters` with the constraint configuration
+- Assert on `violation` (not `deny`)
+
 ---
 
 ## Summary

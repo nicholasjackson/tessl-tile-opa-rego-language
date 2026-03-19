@@ -51,14 +51,19 @@ deny contains msg if {
 
 ---
 
-## 1. BLAST RADIUS CONTROL FOR CHANGE MANAGEMENT
+## 1. S3 BUCKET COMPLIANCE (ENCRYPTION AND VERSIONING)
 
-Control the scope of infrastructure changes to prevent large-scale disruptions.
+**Key patterns this section teaches:**
+- Checking **two Terraform resource types** for the same setting: the primary `aws_s3_bucket` resource (inline config) and a dedicated configuration resource (`aws_s3_bucket_server_side_encryption_configuration`, `aws_s3_bucket_versioning`)
+- **Helper function with nested list traversal**: the encryption algorithm is buried two levels deep (`rule[*].apply_server_side_encryption_by_default[*].sse_algorithm`) — a helper with `some rule_entry in ...` and `some encryption_config in ...` is the correct pattern
+- Checking `status != "Enabled"` (string) for the versioning resource, not a boolean flag
+
+S3 bucket settings like encryption and versioning can be configured either inline on the `aws_s3_bucket` resource or via a dedicated separate resource (`aws_s3_bucket_server_side_encryption_configuration`, `aws_s3_bucket_versioning`). Policies must check both resource types.
 
 ```rego
 # METADATA
-# title: Blast Radius Control
-# description: Controls the scope of infrastructure changes to prevent large-scale disruptions
+# title: S3 Bucket Compliance — Encryption and Versioning
+# description: Ensures all S3 buckets have server-side encryption and versioning enabled
 # authors:
 # - Infrastructure Security Team <infrasec@example.com>
 # custom:
@@ -69,78 +74,7 @@ import rego.v1
 
 tfplan := object.get(input, "plan", input)
 
-blast_radius := 30
-
-weights := {
-    "aws_autoscaling_group": {"delete": 100, "create": 10, "modify": 1},
-    "aws_instance": {"delete": 10, "create": 1, "modify": 1},
-}
-
-resource_types := {"aws_autoscaling_group", "aws_instance", "aws_iam", "aws_launch_configuration"}
-
-default authz := false
-
-# METADATA
-# title: Authorize infrastructure changes
-# description: Approves changes only when blast radius score is below threshold and no IAM resources are modified
-# entrypoint: true
-# custom:
-#   severity: HIGH
-authz if {
-    score < blast_radius
-    not touches_iam
-}
-
-score := s if {
-    all_resources := [x |
-        some resource_type, crud in weights
-        del := crud.delete * num_deletes[resource_type]
-        new := crud.create * num_creates[resource_type]
-        mod := crud.modify * num_modifies[resource_type]
-        x := (del + new) + mod
-    ]
-    s := sum(all_resources)
-}
-
-touches_iam if {
-    some r in tfplan.resource_changes
-    startswith(r.type, "aws_iam")
-}
-
-num_deletes[resource_type] := count(resources) if {
-    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "delete" in r.change.actions]
-}
-
-num_creates[resource_type] := count(resources) if {
-    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "create" in r.change.actions]
-}
-
-num_modifies[resource_type] := count(resources) if {
-    resources := [r | some r in tfplan.resource_changes; r.type == resource_type; "update" in r.change.actions]
-}
-```
-
-**Description**: Calculates a weighted score for Terraform plan changes based on resource types and operations. Prevents high-impact changes (score >= 30) and any IAM modifications from being auto-approved.
-
----
-
-## 2. S3 BUCKET ENCRYPTION REQUIREMENTS
-
-Ensure all S3 buckets are created with server-side encryption enabled.
-
-```rego
-# METADATA
-# title: S3 Bucket Encryption Requirements
-# description: Ensures all S3 buckets have server-side encryption enabled with approved algorithms
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
+# --- Encryption ---
 
 # METADATA
 # title: Deny unencrypted S3 buckets
@@ -151,7 +85,7 @@ tfplan := object.get(input, "plan", input)
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_s3_bucket"
-    "create" in r.change.actions
+    some action in r.change.actions; action in {"create", "update"}
     not r.change.after.server_side_encryption_configuration
     msg := sprintf("S3 bucket %v does not have encryption enabled", [r.address])
 }
@@ -159,40 +93,20 @@ deny contains msg if {
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_s3_bucket_server_side_encryption_configuration"
-    "create" in r.change.actions
+    some action in r.change.actions; action in {"create", "update"}
     not encryption_algorithm_valid(r)
     msg := sprintf("S3 bucket %v uses invalid encryption algorithm", [r.address])
 }
 
+# resource.change.after.rule is a list of rule objects.
+# Each rule has apply_server_side_encryption_by_default as a list with one element.
 encryption_algorithm_valid(resource) if {
     some rule_entry in resource.change.after.rule
     some encryption_config in rule_entry.apply_server_side_encryption_by_default
-    algo := encryption_config.sse_algorithm
-    algo in {"AES256", "aws:kms"}
+    encryption_config.sse_algorithm in {"AES256", "aws:kms"}
 }
-```
 
-**Description**: Validates that S3 buckets have encryption configured and use approved encryption algorithms (AES256 or KMS).
-
----
-
-## 3. S3 BUCKET VERSIONING ENFORCEMENT
-
-Require versioning to be enabled on all S3 buckets for data protection.
-
-```rego
-# METADATA
-# title: S3 Bucket Versioning Enforcement
-# description: Requires versioning to be enabled on all S3 buckets for data protection
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
+# --- Versioning ---
 
 # METADATA
 # title: Deny S3 buckets without versioning
@@ -213,7 +127,7 @@ has_versioning_enabled(resource) if {
     v.enabled == true
 }
 
-# Also check separate versioning resource
+# Also check the separate versioning resource type
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type == "aws_s3_bucket_versioning"
@@ -224,11 +138,16 @@ deny contains msg if {
 }
 ```
 
-**Description**: Ensures S3 buckets have versioning enabled to protect against accidental deletion and enable point-in-time recovery.
+**Description**: Validates S3 buckets have both encryption and versioning configured, checking both inline configuration and dedicated separate resource types.
 
 ---
 
-## 4. REQUIRED TAGS ENFORCEMENT
+## 2. REQUIRED TAGS ENFORCEMENT
+
+**Key patterns this section teaches:**
+- **Exclude delete actions**: use `action != "delete"` (not `action in {"create", "update"}`) when the policy should apply to all non-destructive changes — this is subtly different from the create/update pattern
+- **Safe tag access**: use `object.get(r.change.after, "tags", {})` to get an empty map instead of undefined when `tags` is absent
+- **Two deny rules**: one for missing tags and one for empty-string tag values — both must be enforced separately
 
 Enforce mandatory tags across all cloud resources for cost tracking and governance.
 
@@ -292,203 +211,13 @@ supports_tags(resource_type) if {
 
 ---
 
-## 5. IAM POLICY PROTECTION AND LEAST PRIVILEGE
+## 3. CLOUDFORMATION S3 BUCKET ACCESS CONTROL
 
-Prevent overly permissive IAM policies and enforce least privilege principles.
-
-```rego
-# METADATA
-# title: IAM Policy Protection and Least Privilege
-# description: Prevents overly permissive IAM policies and enforces least privilege principles
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny wildcard IAM permissions
-# description: Blocks IAM policies that grant unrestricted access to all actions and resources
-# custom:
-#   severity: HIGH
-# entrypoint: true
-# Deny IAM policies with wildcard actions on all resources
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type in {"aws_iam_policy", "aws_iam_role_policy"}
-    some action in r.change.actions; action in {"create", "update"}
-    policy := json.unmarshal(r.change.after.policy)
-    some statement in policy.Statement
-    statement.Effect == "Allow"
-    statement.Action == "*"
-    statement.Resource == "*"
-    msg := sprintf("IAM policy %v grants wildcard permissions (*:*)", [r.address])
-}
-
-# Deny policies that allow privilege escalation
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type in {"aws_iam_policy", "aws_iam_role_policy"}
-    some action in r.change.actions; action in {"create", "update"}
-    policy := json.unmarshal(r.change.after.policy)
-    some statement in policy.Statement
-    statement.Effect == "Allow"
-    some dangerous_action in statement.Action
-    dangerous_action in privilege_escalation_actions
-    msg := sprintf("IAM policy %v allows privilege escalation via %v", [r.address, dangerous_action])
-}
-
-privilege_escalation_actions := {
-    "iam:CreateAccessKey",
-    "iam:CreateLoginProfile",
-    "iam:UpdateLoginProfile",
-    "iam:AttachUserPolicy",
-    "iam:AttachGroupPolicy",
-    "iam:AttachRolePolicy",
-    "iam:PutUserPolicy",
-    "iam:PutGroupPolicy",
-    "iam:PutRolePolicy",
-    "iam:CreatePolicyVersion",
-    "iam:SetDefaultPolicyVersion",
-    "iam:PassRole",
-    "lambda:CreateFunction",
-    "lambda:UpdateFunctionCode",
-    "glue:CreateDevEndpoint",
-}
-```
-
-**Description**: Blocks IAM policies that grant excessive permissions or allow privilege escalation, enforcing least privilege access control.
-
----
-
-## 6. SECURITY GROUP VALIDATION - NO OPEN PORTS
-
-Prevent security groups from exposing services to the internet on dangerous ports.
-
-```rego
-# METADATA
-# title: Security Group Validation - No Open Ports
-# description: Prevents security groups from exposing services to the internet on dangerous ports
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-dangerous_ports := {22, 3389, 1433, 3306, 5432, 27017, 6379, 9200, 9300}
-
-# METADATA
-# title: Deny public access on dangerous ports
-# description: Blocks security groups that allow internet access on sensitive service ports
-# custom:
-#   severity: HIGH
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_security_group"
-    some action in r.change.actions; action in {"create", "update"}
-    some ingress in r.change.after.ingress
-    "0.0.0.0/0" in ingress.cidr_blocks
-    port := ingress.from_port
-    port in dangerous_ports
-    msg := sprintf("Security group %v allows public access on dangerous port %v", [r.address, port])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_security_group_rule"
-    some action in r.change.actions; action in {"create", "update"}
-    r.change.after.type == "ingress"
-    "0.0.0.0/0" in r.change.after.cidr_blocks
-    port := r.change.after.from_port
-    port in dangerous_ports
-    msg := sprintf("Security group rule %v allows public access on dangerous port %v", [r.address, port])
-}
-
-# Also deny unrestricted ingress on all ports
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_security_group"
-    some action in r.change.actions; action in {"create", "update"}
-    some ingress in r.change.after.ingress
-    "0.0.0.0/0" in ingress.cidr_blocks
-    ingress.from_port == 0
-    ingress.to_port == 65535
-    msg := sprintf("Security group %v allows unrestricted public access on all ports", [r.address])
-}
-```
-
-**Description**: Validates security groups to prevent public exposure of sensitive services like SSH, RDP, databases, and other dangerous ports.
-
----
-
-## 7. SECURITY GROUP APPROVED PROTOCOLS
-
-Ensure security groups only use approved network protocols.
-
-```rego
-# METADATA
-# title: Security Group Approved Protocols
-# description: Ensures security groups only use approved network protocols
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-approved_protocols := {"tcp", "udp", "icmp"}
-
-# METADATA
-# title: Deny unapproved protocols
-# description: Blocks security groups that use protocols outside the approved list
-# custom:
-#   severity: HIGH
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_security_group"
-    some action in r.change.actions; action in {"create", "update"}
-    some rule in r.change.after.ingress
-    protocol := lower(rule.protocol)
-    protocol != "-1"  # -1 means all protocols
-    not protocol in approved_protocols
-    msg := sprintf("Security group %v uses unapproved protocol: %v", [r.address, protocol])
-}
-
-# METADATA
-# title: Warn about unrestricted protocols
-# description: Warns when security groups allow all protocols
-# custom:
-#   severity: MEDIUM
-# entrypoint: true
-# Warn about all protocols (-1)
-warn contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_security_group"
-    some action in r.change.actions; action in {"create", "update"}
-    some rule in r.change.after.ingress
-    rule.protocol == "-1"
-    msg := sprintf("Security group %v allows all protocols (-1), consider restricting", [r.address])
-}
-```
-
-**Description**: Restricts security groups to use only approved network protocols and warns when all protocols are allowed.
-
----
-
-## 8. CLOUDFORMATION S3 BUCKET ACCESS CONTROL
+**Key patterns this section teaches:**
+- **`package system` with a `main` response object**: CloudFormation hooks use `package system` and must return `{"allow": bool, "violations": set}` — this is different from Terraform policies that only use `deny` rules
+- **Uppercase action strings**: CloudFormation uses `"CREATE"` and `"UPDATE"` (not lowercase), and the resource type uses `AWS::S3::Bucket` notation
+- **Helper rules for readability**: factor repeated conditions (`bucket_create_or_update`, `bucket_is_private`, `block_public_acls`) into separate boolean rules rather than inlining them in every deny rule
+- **`input.resource`** (not `input.resource_changes`) — CloudFormation hooks receive a single resource at `input.resource.type`, `input.resource.id`, and `input.resource.properties`
 
 CloudFormation hook policy to enforce S3 bucket security configurations.
 
@@ -555,58 +284,12 @@ block_public_policy if {
 
 ---
 
-## 9. CLOUDFORMATION EC2 INSTANCE TYPE RESTRICTIONS
+## 4. TERRAFORM MODULE SECURITY GROUP VALIDATION
 
-Limit which EC2 instance types can be provisioned to control costs.
-
-```rego
-# METADATA
-# title: CloudFormation EC2 Instance Type Restrictions
-# description: Limits which EC2 instance types can be provisioned to control costs
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package system
-
-import rego.v1
-
-allowed_instance_types := {"t2.micro", "t2.small", "t2.medium", "t3.micro", "t3.small", "t3.medium"}
-
-# METADATA
-# title: Deny unapproved instance types
-# description: Blocks EC2 instances using instance types not in the approved list
-# custom:
-#   severity: MEDIUM
-# entrypoint: true
-deny contains msg if {
-    input.resource.type == "AWS::EC2::Instance"
-    input.action in {"CREATE", "UPDATE"}
-    instance_type := input.resource.properties.InstanceType
-    not allowed_instance_types[instance_type]
-    msg := sprintf("Instance type %v is not allowed. Allowed types: %v", [instance_type, allowed_instance_types])
-}
-
-# METADATA
-# title: Warn about missing monitoring
-# description: Warns when EC2 instances do not have detailed monitoring enabled
-# custom:
-#   severity: LOW
-# entrypoint: true
-# Ensure instances have proper monitoring
-warn contains msg if {
-    input.resource.type == "AWS::EC2::Instance"
-    input.action in {"CREATE", "UPDATE"}
-    not input.resource.properties.Monitoring
-    msg := sprintf("EC2 instance %v should have detailed monitoring enabled", [input.resource.id])
-}
-```
-
-**Description**: CloudFormation policy that restricts EC2 instance types to approved list and recommends enabling detailed monitoring.
-
----
-
-## 10. TERRAFORM MODULE SECURITY GROUP VALIDATION
+**Key patterns this section teaches:**
+- **`walk()` to traverse nested modules**: use `walk(input.planned_values, [path, value])` to visit every node in the plan tree, including resources in child modules
+- **Distinguishing root vs child module resources**: check `reverse_index(path, 2) == "root_module"` for top-level resources and `reverse_index(path, 3) == "child_modules"` for nested module resources
+- **`reverse_index` helper**: `path[count(path) - idx]` reads the path array from the end — a reusable pattern for positional path matching
 
 Validate security groups don't use insecure protocols across modules.
 
@@ -658,526 +341,13 @@ reverse_index(path, idx) := path[count(path) - idx]
 
 ---
 
-## 11. RDS ENCRYPTION AT REST REQUIREMENT
+## 5. MULTI-REGION DEPLOYMENT POLICIES
 
-Ensure all RDS database instances and clusters have encryption at rest enabled.
+**Key patterns this section teaches:**
+- **Multiple function heads for the same helper**: define `has_replication(resource)` twice, each with a different `resource.type` check — OPA evaluates all heads and the rule is true if any head succeeds. This is cleaner than a single function with `if/else` logic
+- **Provider region access path**: the AWS provider region is at `tfplan.configuration.provider_config.aws.expressions.region.constant_value` — a deeply nested path not easily guessed
 
-```rego
-# METADATA
-# title: RDS Encryption at Rest
-# description: Ensures all RDS database instances and clusters have encryption at rest enabled
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny unencrypted RDS instances
-# description: Blocks RDS instance creation or update without storage encryption
-# custom:
-#   severity: HIGH
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_db_instance"
-    some action in r.change.actions; action in {"create", "update"}
-    not r.change.after.storage_encrypted
-    msg := sprintf("RDS instance %v must have storage encryption enabled", [r.address])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_rds_cluster"
-    some action in r.change.actions; action in {"create", "update"}
-    not r.change.after.storage_encrypted
-    msg := sprintf("RDS cluster %v must have storage encryption enabled", [r.address])
-}
-
-# Require KMS for production databases
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type in {"aws_db_instance", "aws_rds_cluster"}
-    some action in r.change.actions; action in {"create", "update"}
-    tags := object.get(r.change.after, "tags", {})
-    tags.Environment == "production"
-    not r.change.after.kms_key_id
-    msg := sprintf("Production database %v must use KMS encryption", [r.address])
-}
-```
-
-**Description**: Validates RDS instances and clusters have encryption enabled, requiring KMS for production environments.
-
----
-
-## 12. RDS BACKUP RETENTION REQUIREMENTS
-
-Enforce backup retention policies for RDS databases.
-
-```rego
-# METADATA
-# title: RDS Backup Retention Requirements
-# description: Enforces backup retention policies for RDS databases
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-minimum_backup_retention := 7
-production_backup_retention := 30
-
-# METADATA
-# title: Deny insufficient backup retention
-# description: Blocks RDS instances with backup retention below minimum threshold
-# custom:
-#   severity: MEDIUM
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_db_instance"
-    some action in r.change.actions; action in {"create", "update"}
-    retention := object.get(r.change.after, "backup_retention_period", 0)
-    retention < minimum_backup_retention
-    msg := sprintf("RDS instance %v backup retention (%v days) is below minimum (%v days)", [r.address, retention, minimum_backup_retention])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_db_instance"
-    some action in r.change.actions; action in {"create", "update"}
-    tags := object.get(r.change.after, "tags", {})
-    tags.Environment == "production"
-    retention := object.get(r.change.after, "backup_retention_period", 0)
-    retention < production_backup_retention
-    msg := sprintf("Production RDS instance %v requires %v days backup retention (current: %v)", [r.address, production_backup_retention, retention])
-}
-```
-
-**Description**: Ensures RDS instances have adequate backup retention periods with stricter requirements for production databases.
-
----
-
-## 13. LAMBDA FUNCTION CONFIGURATION VALIDATION
-
-Validate Lambda function security and operational configurations.
-
-```rego
-# METADATA
-# title: Lambda Function Configuration Validation
-# description: Validates Lambda function security and operational configurations
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny Lambda without dead letter queue
-# description: Blocks Lambda functions that lack dead letter queue configuration
-# custom:
-#   severity: MEDIUM
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_lambda_function"
-    some action in r.change.actions; action in {"create", "update"}
-    not r.change.after.dead_letter_config
-    msg := sprintf("Lambda function %v should have dead letter queue configured", [r.address])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_lambda_function"
-    some action in r.change.actions; action in {"create", "update"}
-    timeout := r.change.after.timeout
-    timeout > 300
-    msg := sprintf("Lambda function %v timeout (%v seconds) exceeds maximum (300 seconds)", [r.address, timeout])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_lambda_function"
-    some action in r.change.actions; action in {"create", "update"}
-    not r.change.after.tracing_config
-    msg := sprintf("Lambda function %v should have X-Ray tracing enabled", [r.address])
-}
-
-# Ensure Lambda functions in VPC have proper networking
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_lambda_function"
-    some action in r.change.actions; action in {"create", "update"}
-    vpc_config := r.change.after.vpc_config
-    count(vpc_config) > 0
-    subnet_count := count(vpc_config[0].subnet_ids)
-    subnet_count < 2
-    msg := sprintf("Lambda function %v in VPC should span at least 2 subnets for high availability", [r.address])
-}
-```
-
-**Description**: Validates Lambda functions have proper operational configurations including DLQ, reasonable timeouts, tracing, and multi-AZ deployment.
-
----
-
-## 14. VPC AND SUBNET CONFIGURATION POLICIES
-
-Enforce VPC and subnet architecture best practices.
-
-```rego
-# METADATA
-# title: VPC and Subnet Configuration Policies
-# description: Enforces VPC and subnet architecture best practices
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny VPC without flow logs
-# description: Blocks VPC creation without associated flow log configuration
-# custom:
-#   severity: HIGH
-# entrypoint: true
-# Require VPC flow logs for network monitoring
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_vpc"
-    "create" in r.change.actions
-    vpc_id := r.address
-    not has_flow_logs(vpc_id)
-    msg := sprintf("VPC %v must have flow logs enabled", [r.address])
-}
-
-has_flow_logs(vpc_address) if {
-    some r in tfplan.resource_changes
-    r.type == "aws_flow_log"
-    "create" in r.change.actions
-    contains(r.change.after.vpc_id, vpc_address)
-}
-
-# Ensure subnets are properly tagged with tier
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_subnet"
-    some action in r.change.actions; action in {"create", "update"}
-    tags := object.get(r.change.after, "tags", {})
-    not tags.Tier
-    msg := sprintf("Subnet %v must have Tier tag (public/private/database)", [r.address])
-}
-
-# Validate subnet CIDR sizes
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_subnet"
-    some action in r.change.actions; action in {"create", "update"}
-    cidr := r.change.after.cidr_block
-    cidr_parts := split(cidr, "/")
-    prefix_length := to_number(cidr_parts[1])
-    prefix_length > 28
-    msg := sprintf("Subnet %v CIDR /%v is too small (minimum /28)", [r.address, prefix_length])
-}
-```
-
-**Description**: Enforces VPC flow logs, proper subnet tagging, and validates subnet CIDR sizing for proper network architecture.
-
----
-
-## 15. EBS VOLUME ENCRYPTION REQUIREMENTS
-
-Require encryption for all EBS volumes.
-
-```rego
-# METADATA
-# title: EBS Volume Encryption Requirements
-# description: Requires encryption for all EBS volumes
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny unencrypted EBS volumes
-# description: Blocks creation of EBS volumes without encryption enabled
-# custom:
-#   severity: HIGH
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_ebs_volume"
-    "create" in r.change.actions
-    not r.change.after.encrypted
-    msg := sprintf("EBS volume %v must be encrypted", [r.address])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_instance"
-    "create" in r.change.actions
-    some ebs in r.change.after.ebs_block_device
-    not ebs.encrypted
-    msg := sprintf("EC2 instance %v has unencrypted EBS volume", [r.address])
-}
-
-# Require KMS encryption for sensitive data volumes
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_ebs_volume"
-    "create" in r.change.actions
-    tags := object.get(r.change.after, "tags", {})
-    tags.DataClassification in {"sensitive", "confidential"}
-    not r.change.after.kms_key_id
-    msg := sprintf("EBS volume %v with sensitive data must use KMS encryption", [r.address])
-}
-```
-
-**Description**: Ensures all EBS volumes are encrypted, with KMS requirement for volumes containing sensitive data.
-
----
-
-## 16. KMS KEY USAGE POLICIES
-
-Validate proper KMS key configuration and rotation.
-
-```rego
-# METADATA
-# title: KMS Key Usage Policies
-# description: Validates proper KMS key configuration and rotation
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny KMS keys without rotation
-# description: Blocks KMS key creation or update without automatic key rotation enabled
-# custom:
-#   severity: HIGH
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_kms_key"
-    some action in r.change.actions; action in {"create", "update"}
-    not r.change.after.enable_key_rotation
-    msg := sprintf("KMS key %v must have automatic key rotation enabled", [r.address])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_kms_key"
-    some action in r.change.actions; action in {"create", "update"}
-    not r.change.after.deletion_window_in_days
-    msg := sprintf("KMS key %v must specify deletion window", [r.address])
-}
-
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_kms_key"
-    some action in r.change.actions; action in {"create", "update"}
-    window := r.change.after.deletion_window_in_days
-    window < 7
-    msg := sprintf("KMS key %v deletion window (%v days) is too short (minimum 7 days)", [r.address, window])
-}
-
-# Require proper key descriptions
-deny contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_kms_key"
-    "create" in r.change.actions
-    description := object.get(r.change.after, "description", "")
-    count(description) < 10
-    msg := sprintf("KMS key %v must have meaningful description (minimum 10 characters)", [r.address])
-}
-```
-
-**Description**: Enforces KMS key rotation, deletion windows, and proper documentation for encryption key management.
-
----
-
-## 17. RESOURCE NAMING CONVENTIONS
-
-Enforce consistent naming standards across infrastructure resources.
-
-```rego
-# METADATA
-# title: Resource Naming Conventions
-# description: Enforces consistent naming standards across infrastructure resources
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny non-compliant resource names
-# description: Blocks resources with names that do not follow organizational naming conventions
-# custom:
-#   severity: MEDIUM
-# entrypoint: true
-deny contains msg if {
-    some r in tfplan.resource_changes
-    some action in r.change.actions; action in {"create", "update"}
-    supports_naming(r.type)
-    name := get_resource_name(r)
-    not valid_name_format(name, r.type)
-    msg := sprintf("Resource %v name '%v' does not follow naming convention", [r.address, name])
-}
-
-supports_naming(resource_type) if {
-    resource_type in {
-        "aws_instance",
-        "aws_s3_bucket",
-        "aws_lambda_function",
-        "aws_dynamodb_table",
-        "aws_rds_cluster",
-    }
-}
-
-get_resource_name(resource) := name if {
-    name := object.get(resource.change.after, "name", "")
-}
-
-get_resource_name(resource) := name if {
-    name := object.get(resource.change.after, "bucket", "")
-}
-
-get_resource_name(resource) := name if {
-    name := object.get(resource.change.after, "function_name", "")
-}
-
-# Naming format: {env}-{service}-{resource-type}-{identifier}
-# Example: prod-api-lambda-processor
-valid_name_format(name, _) if {
-    parts := split(name, "-")
-    count(parts) >= 3
-    parts[0] in {"dev", "staging", "prod"}
-}
-
-# S3 buckets must follow DNS-compliant naming
-valid_name_format(name, "aws_s3_bucket") if {
-    count(name) >= 3
-    count(name) <= 63
-    regex.match(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`, name)
-    not contains(name, "..")
-}
-```
-
-**Description**: Validates resource names follow organizational naming conventions including environment prefixes and DNS compliance for S3 buckets.
-
----
-
-## 18. COST ESTIMATION AND BUDGET ENFORCEMENT
-
-Prevent creation of resources that exceed cost thresholds.
-
-```rego
-# METADATA
-# title: Cost Estimation and Budget Enforcement
-# description: Prevents creation of resources that exceed cost thresholds
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.analysis
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# Estimated monthly costs for common instance types (USD)
-instance_costs := {
-    "t2.micro": 8.50,
-    "t2.small": 17.00,
-    "t2.medium": 34.00,
-    "t3.micro": 7.50,
-    "t3.small": 15.00,
-    "t3.medium": 30.00,
-    "m5.large": 70.00,
-    "m5.xlarge": 140.00,
-    "r5.large": 91.00,
-    "r5.xlarge": 182.00,
-}
-
-monthly_budget := 1000
-
-total_estimated_cost := cost if {
-    costs := [c |
-        some r in tfplan.resource_changes
-        r.type == "aws_instance"
-        "create" in r.change.actions
-        instance_type := r.change.after.instance_type
-        c := instance_costs[instance_type]
-    ]
-    cost := sum(costs)
-}
-
-# METADATA
-# title: Deny deployments exceeding budget
-# description: Blocks deployments when estimated monthly cost exceeds the budget threshold
-# custom:
-#   severity: MEDIUM
-# entrypoint: true
-deny contains msg if {
-    total_estimated_cost > monthly_budget
-    msg := sprintf("Estimated monthly cost $%.2f exceeds budget $%.2f", [total_estimated_cost, monthly_budget])
-}
-
-# METADATA
-# title: Warn about expensive instance types
-# description: Warns when individual instances exceed cost threshold
-# custom:
-#   severity: LOW
-# entrypoint: true
-# Warn about expensive instance types
-warn contains msg if {
-    some r in tfplan.resource_changes
-    r.type == "aws_instance"
-    "create" in r.change.actions
-    instance_type := r.change.after.instance_type
-    cost := instance_costs[instance_type]
-    cost > 100
-    msg := sprintf("Instance %v uses expensive type %v (~$%.2f/month)", [r.address, instance_type, cost])
-}
-```
-
-**Description**: Estimates monthly infrastructure costs and prevents deployments that exceed budget thresholds.
-
----
-
-## 19. MULTI-REGION DEPLOYMENT POLICIES
-
-Ensure multi-region resources follow geographic compliance requirements.
+When checking the same logical condition against multiple resource types, define a helper with multiple function heads — one per resource type. OPA evaluates all heads and the rule is true if any head succeeds.
 
 ```rego
 # METADATA
@@ -1196,19 +366,12 @@ tfplan := object.get(input, "plan", input)
 allowed_regions := {"us-east-1", "us-west-2", "eu-west-1", "eu-central-1"}
 eu_only_regions := {"eu-west-1", "eu-central-1"}
 
-# METADATA
-# title: Deny unapproved regions
-# description: Blocks deployments to regions outside the approved list
-# custom:
-#   severity: HIGH
-# entrypoint: true
 deny contains msg if {
     region := tfplan.configuration.provider_config.aws.expressions.region.constant_value
     not allowed_regions[region]
     msg := sprintf("Region %v is not in approved regions list", [region])
 }
 
-# Ensure EU data stays in EU
 deny contains msg if {
     some r in tfplan.resource_changes
     r.type in {"aws_s3_bucket", "aws_rds_cluster", "aws_dynamodb_table"}
@@ -1226,7 +389,6 @@ deny contains msg if {
 # custom:
 #   severity: LOW
 # entrypoint: true
-# Require multi-region replication for critical resources
 warn contains msg if {
     some r in tfplan.resource_changes
     r.type in {"aws_s3_bucket", "aws_dynamodb_table"}
@@ -1237,6 +399,7 @@ warn contains msg if {
     msg := sprintf("Critical resource %v should have multi-region replication configured", [r.address])
 }
 
+# Multiple function heads — one per resource type. OPA tries each head in turn.
 has_replication(resource) if {
     resource.type == "aws_s3_bucket"
     resource.change.after.replication_configuration
@@ -1251,161 +414,3 @@ has_replication(resource) if {
 **Description**: Validates resources are deployed in approved regions and enforces data residency requirements with multi-region replication for critical resources.
 
 ---
-
-## 20. TERRAFORM STATE BACKEND VALIDATION
-
-Ensure Terraform state is stored securely with proper backend configuration.
-
-```rego
-# METADATA
-# title: Terraform State Backend Validation
-# description: Ensures Terraform state is stored securely with proper backend configuration
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.state
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-# METADATA
-# title: Deny missing remote state backend
-# description: Blocks Terraform configurations without a remote state backend
-# custom:
-#   severity: HIGH
-# entrypoint: true
-deny contains msg if {
-    backend := tfplan.configuration.terraform.backend
-    not backend
-    msg := "Terraform must use remote state backend (S3, Terraform Cloud, etc.)"
-}
-
-deny contains msg if {
-    backend := tfplan.configuration.terraform.backend.s3
-    not backend.encrypt
-    msg := "Terraform S3 backend must have encryption enabled"
-}
-
-deny contains msg if {
-    backend := tfplan.configuration.terraform.backend.s3
-    not backend.dynamodb_table
-    msg := "Terraform S3 backend must use DynamoDB table for state locking"
-}
-
-# Ensure state bucket has versioning
-deny contains msg if {
-    backend := tfplan.configuration.terraform.backend.s3
-    bucket := backend.bucket
-    not state_bucket_has_versioning(bucket)
-    msg := sprintf("State bucket %v must have versioning enabled", [bucket])
-}
-
-state_bucket_has_versioning(bucket_name) if {
-    some r in tfplan.resource_changes
-    r.type == "aws_s3_bucket_versioning"
-    contains(r.change.after.bucket, bucket_name)
-    some vc in r.change.after.versioning_configuration
-    vc.status == "Enabled"
-}
-```
-
-**Description**: Validates Terraform state backend configuration to ensure state is stored securely with encryption, locking, and versioning.
-
----
-
-## 21. TERRAFORM PROVIDER VERSION CONSTRAINTS
-
-Enforce provider version constraints to ensure reproducible infrastructure.
-
-```rego
-# METADATA
-# title: Terraform Provider Version Constraints
-# description: Enforces provider version constraints to ensure reproducible infrastructure
-# authors:
-# - Infrastructure Security Team <infrasec@example.com>
-# custom:
-#   category: infrastructure-as-code
-package terraform.providers
-
-import rego.v1
-
-tfplan := object.get(input, "plan", input)
-
-required_providers := {
-    "aws": "~> 4.0",
-    "azurerm": "~> 3.0",
-    "google": "~> 4.0",
-}
-
-# METADATA
-# title: Deny missing required providers
-# description: Blocks configurations that do not specify required_providers with version constraints
-# custom:
-#   severity: MEDIUM
-# entrypoint: true
-deny contains msg if {
-    not tfplan.configuration.terraform.required_providers
-    msg := "Terraform configuration must specify required_providers with version constraints"
-}
-
-deny contains msg if {
-    provider_config := tfplan.configuration.terraform.required_providers
-    some provider_name in object.keys(required_providers)
-    not provider_config[provider_name]
-    msg := sprintf("Required provider %v is not configured", [provider_name])
-}
-
-deny contains msg if {
-    provider_config := tfplan.configuration.terraform.required_providers
-    some provider_name, required_version in required_providers
-    configured := provider_config[provider_name]
-    configured_version := configured.version
-    not configured_version
-    msg := sprintf("Provider %v must specify version constraint", [provider_name])
-}
-
-# Ensure Terraform version is constrained
-deny contains msg if {
-    not tfplan.configuration.terraform.required_version
-    msg := "Terraform configuration must specify required_version constraint"
-}
-
-# METADATA
-# title: Warn about inflexible version constraints
-# description: Warns when Terraform version uses exact pinning instead of flexible constraints
-# custom:
-#   severity: LOW
-# entrypoint: true
-warn contains msg if {
-    version := tfplan.configuration.terraform.required_version
-    not contains(version, "~>")
-    not contains(version, ">=")
-    msg := "Terraform version should use flexible constraint (~> or >=) rather than exact version"
-}
-```
-
-**Description**: Ensures Terraform configurations specify provider and Terraform version constraints for reproducible and stable infrastructure deployments.
-
----
-
-## Summary
-
-These examples demonstrate comprehensive IaC validation covering:
-
-- **Change Management**: Blast radius control, cost estimation
-- **Security**: Encryption requirements, IAM least privilege, security group rules
-- **Compliance**: Required tags, naming conventions, data residency
-- **Operational Excellence**: Backup retention, monitoring, high availability
-- **Resource Validation**: S3, RDS, Lambda, VPC, EBS, KMS configurations
-- **Platform Controls**: State backend security, provider versioning, multi-region policies
-
-All policies follow Rego best practices with:
-- Clear violation messages
-- Separation of concerns (helper rules)
-- Proper handling of undefined values
-- Support for both Terraform and CloudFormation
-- Comprehensive coverage of AWS resources
-
-These patterns can be adapted for other cloud providers (Azure, GCP) and extended to cover additional resource types and organizational requirements.
