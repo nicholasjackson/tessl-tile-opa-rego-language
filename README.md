@@ -23,3 +23,43 @@ This tile teaches AI agents how to write correct, idiomatic [Rego](https://www.o
 - Structured violation messages via `deny contains msg if { ... }`
 - `object.get` for safe field access with defaults
 - Check both `create` and `update` actions in IaC policies
+
+## Running Evals
+
+This tile's evals live in [evals/](evals/) (31 scenarios covering the domains above). They're run with the [Tessl CLI](https://docs.tessl.io).
+
+**1. Install and authenticate**
+
+```
+npm install -g tessl
+tessl login
+```
+
+**2. Link this directory to a Tessl project** (eval runs need a project to save results to)
+
+```
+tessl project create tessl-tile-opa-rego-language --workspace <your-workspace>
+```
+
+If this directory is already linked but the link is stale, run `tessl project repair` instead.
+
+**3. Run the evals**
+
+```
+tessl eval .
+```
+
+This reads scenarios from `evals/` and uses the tile's rules and docs as injected context automatically.
+
+Useful flags:
+- `--agent` / `--model` — choose the agent under test (run `tessl eval --list-agents` for the current list)
+- `--runs <count>` — repeat each scenario N times
+- `--skip-baseline` — skip the always-on baseline (control) variant
+- `--label <text>` — tag the run for easier lookup later
+
+**4. View results**
+
+```
+tessl eval list
+tessl eval view <run-id>
+```
