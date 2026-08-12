@@ -1,0 +1,26 @@
+{
+  "type": "weighted_checklist",
+  "context": "Evaluates whether the agent correctly handles a Terraform repeatable HCL block (capabilities { ... }) that serializes as a list of 0-or-1 objects in plan JSON, rather than treating it as a bare object. This is the pattern behind a real production bug: object.get(capabilities, \"drop\", []) silently fails to match when capabilities is [] rather than {}, so the rule never fires and the check appears to work in tests that mock the wrong shape.",
+  "checklist": [
+    {
+      "name": "Deny when capabilities block is absent (empty list)",
+      "description": "A deny rule triggers when a docker_container resource has `capabilities` equal to `[]` (the real plan-JSON shape for 'no capabilities block configured') — not just when the `capabilities` key is missing entirely from the mock input",
+      "max_score": 30
+    },
+    {
+      "name": "Deny when drop does not include ALL",
+      "description": "A deny rule triggers when `capabilities` is a non-empty list whose first element's `drop` array does not contain `\"ALL\"` (e.g. `[{\"drop\": [\"CHOWN\"]}]`)",
+      "max_score": 20
+    },
+    {
+      "name": "Capabilities read as a list, not an object",
+      "description": "The policy iterates or indexes `capabilities` as a list (e.g. `some c in object.get(container.change.after, \"capabilities\", [])` or equivalent), rather than calling `object.get(capabilities, \"drop\", ...)` directly on the field as if it were a bare object",
+      "max_score": 25
+    },
+    {
+      "name": "Tests use the real list-shaped mock, not a bare-object mock",
+      "description": "Test fixtures represent `capabilities` as a list (`[]` or `[{\"drop\": [...]}]`), matching real `terraform show -json` output for a repeatable block — not as `{\"drop\": [...]}` or `{}`",
+      "max_score": 25
+    }
+  ]
+}
