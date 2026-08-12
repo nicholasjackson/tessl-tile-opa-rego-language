@@ -1,10 +1,10 @@
-# OPA / Rego Language Tile
+# OPA / Rego Language Plugin
 
 ## Description
 
-This tile teaches AI agents how to write correct, idiomatic [Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) policies using [Open Policy Agent (OPA)](https://www.openpolicyagent.org/). It covers the full range of OPA use cases and enforces best practices through steering rules and curated reference documentation.
+This plugin teaches AI agents how to write correct, idiomatic [Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) policies using [Open Policy Agent (OPA)](https://www.openpolicyagent.org/). It covers the full range of OPA use cases and enforces best practices through steering rules (`rules.md`) and a curated reference skill (`skills/rego-domain-reference`).
 
-### What AI agents learn from this tile
+### What AI agents learn from this plugin
 
 **Policy domains covered:**
 - **Kubernetes admission control** — OPA webhook policies and OPA Gatekeeper `ConstraintTemplate` policies
@@ -26,7 +26,7 @@ This tile teaches AI agents how to write correct, idiomatic [Rego](https://www.o
 
 ## Running Evals
 
-This tile's evals live in [evals/](evals/) (31 scenarios covering the domains above). They're run with the [Tessl CLI](https://docs.tessl.io).
+This plugin's evals live in [evals/](evals/) (31 scenarios covering the domains above). They're run with the [Tessl CLI](https://docs.tessl.io).
 
 **1. Install and authenticate**
 
@@ -49,7 +49,7 @@ If this directory is already linked but the link is stale, run `tessl project re
 tessl eval .
 ```
 
-This reads scenarios from `evals/` and uses the tile's rules and docs as injected context automatically.
+This reads scenarios from `evals/` and uses the plugin's rules and skills as injected context automatically.
 
 Useful flags:
 - `--agent` / `--model` — choose the agent under test (run `tessl eval --list-agents` for the current list)
